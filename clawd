@@ -102,20 +102,28 @@ build_image() {
 
 ensure_image() { image_exists || build_image; }
 
+SESSION_STATE=""
+
 prepare_mounts() {
     [ -d "$HOST_CLAUDE_DIR" ]  || mkdir -p  "$HOST_CLAUDE_DIR"
     [ -e "$HOST_CLAUDE_JSON" ] || : >"$HOST_CLAUDE_JSON"
 
-    # /home/clawd is a dir bind mount so the container can atomic-rename
-    # over .claude.json. Copy the host file in; sync_back copies it out.
-    mkdir -p "$STATE_DIR/home"
-    cp -f "$HOST_CLAUDE_JSON" "$STATE_DIR/home/.claude.json"
+    # Ephemeral per-invocation HOME so two concurrent clawds don't share
+    # state files or lock files. The dir must be a bind mount (not a file)
+    # so claude's atomic-rename on .claude.json works.
+    mkdir -p "$STATE_DIR/sessions"
+    SESSION_STATE=$(mktemp -d "$STATE_DIR/sessions/XXXXXX")
+    mkdir -p "$SESSION_STATE/home"
+    cp -f "$HOST_CLAUDE_JSON" "$SESSION_STATE/home/.claude.json"
 }
 
 sync_back() {
-    if [ -f "$STATE_DIR/home/.claude.json" ]; then
-        cp -f "$STATE_DIR/home/.claude.json" "$HOST_CLAUDE_JSON"
+    [ -n "$SESSION_STATE" ] || return 0
+    if [ -f "$SESSION_STATE/home/.claude.json" ]; then
+        cp -f "$SESSION_STATE/home/.claude.json" "$HOST_CLAUDE_JSON"
     fi
+    rm -rf "$SESSION_STATE"
+    SESSION_STATE=""
 }
 
 run_in_container() {
@@ -133,7 +141,7 @@ run_in_container() {
         -e USER_UID="$(id -u)" \
         -e USER_GID="$(id -g)" \
         -v "$WORKSPACE:/workspace" \
-        -v "$STATE_DIR/home:$CONTAINER_HOME" \
+        -v "$SESSION_STATE/home:$CONTAINER_HOME" \
         -v "$HOST_CLAUDE_DIR:$CONTAINER_HOME/.claude" \
         "$IMAGE_NAME" \
         "$@" || rc=$?
