@@ -40,13 +40,16 @@ RUN apk add --no-cache \\
 
 ARG CLAWD_CLAUDE_VERSION=${CLAUDE_CODE_VERSION}
 RUN set -eux; \\
-    HOME=/opt/claude bash -c "curl -fsSL https://claude.ai/install.sh | bash -s \$CLAWD_CLAUDE_VERSION"; \\
+    export HOME=/opt/claude; \\
+    export PATH="\$HOME/.local/bin:\$PATH"; \\
+    bash -c "curl -fsSL https://claude.ai/install.sh | bash -s \$CLAWD_CLAUDE_VERSION"; \\
     rm -rf /opt/claude/.claude /opt/claude/.claude.json; \\
     ln -s /opt/claude/.local/bin/claude /usr/local/bin/claude; \\
     chmod -R a+rX /opt/claude
 
 ENV DISABLE_AUTOUPDATER=1 \\
-    USE_BUILTIN_RIPGREP=0
+    USE_BUILTIN_RIPGREP=0 \\
+    PATH="/home/clawd/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 RUN mkdir -p /home/clawd /workspace
 
@@ -84,6 +87,12 @@ else
 fi
 
 chown "$USER_UID:$USER_GID" /home/clawd 2>/dev/null || true
+
+# Make claude discoverable at $HOME/.local/bin (where the native installer
+# would have put it) in addition to /usr/local/bin.
+mkdir -p /home/clawd/.local/bin
+ln -sf /usr/local/bin/claude /home/clawd/.local/bin/claude
+chown -R "$USER_UID:$USER_GID" /home/clawd/.local 2>/dev/null || true
 
 # su-exec resets HOME from passwd; set it again after the uid drop.
 exec su-exec "$USER_NAME" env HOME=/home/clawd SHELL=/bin/bash "$@"
