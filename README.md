@@ -52,15 +52,21 @@ owned by you.
 
 ## Concurrency
 
-Don't run host `claude` and `clawd` at the same time. They share
-`~/.claude`, and `history.jsonl` / `sessions/` / `projects/` will race.
+Multiple clawd sessions run fine side-by-side. Each gets its own
+ephemeral HOME, so settings writes and claude's lock files don't
+collide.
+
+Don't mix clawd with host `claude` at the same time. They share
+`~/.claude`, so `history.jsonl` / `sessions/` / `projects/` race, and
+clawd's copy-back of `.claude.json` on exit can overwrite something
+host claude just wrote.
 
 `.claude.json` is copy-in, copy-out rather than a live mount. Claude
-rewrites it with atomic rename, and file-level docker bind mounts reject
-that with EBUSY. clawd copies it into a state dir before each run and
-copies it back after. In-container edits persist on clean exit
-(including `Ctrl-C`, `SIGTERM`, `SIGHUP`). A `SIGKILL` or daemon crash
-drops the copy-back.
+rewrites it with atomic rename, which docker file bind mounts reject
+with EBUSY. Each clawd gets its own snapshot from invocation time;
+changes persist on clean exit (`Ctrl-C`, `SIGTERM`, `SIGHUP`). A
+`SIGKILL` or daemon crash drops the copy-back. Two concurrent clawds
+don't see each other's `.claude.json` edits until they restart.
 
 ## Platforms
 
