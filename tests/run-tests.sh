@@ -57,7 +57,7 @@ test_help_output() {
     fi
     # Expect the doc to mention all reserved subcommands.
     local missing=()
-    for want in "build" "update" "self-update" "shell" "version"; do
+    for want in "build" "update" "self-update" "shell" "yolo" "version"; do
         if ! printf '%s' "$out" | grep -q "$want"; then
             missing+=("$want")
         fi

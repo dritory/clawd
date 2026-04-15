@@ -180,6 +180,7 @@ clawd ${CLAWD_VERSION} — Docker wrapper for Claude Code
 
 Usage:
   clawd [ARGS...]      run \`claude ARGS...\` in a container (default)
+  clawd yolo [ARGS...] run with --dangerously-skip-permissions (one-shot)
   clawd build          build the container image
   clawd update         rebuild with --no-cache to pick up a newer Claude Code
   clawd self-update    update the clawd script itself
@@ -207,6 +208,7 @@ case "${1:-}" in
     update)       build_image --no-cache ;;
     self-update)  self_update ;;
     shell)        run_in_container bash ;;
+    yolo)         shift; run_claude --dangerously-skip-permissions "$@" ;;
     version)      ensure_image
                   echo "clawd ${CLAWD_VERSION}"
                   run_claude --version ;;

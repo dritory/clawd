@@ -33,12 +33,18 @@ completion file.
 clawd                # claude in $PWD
 clawd -p "hello"     # one-shot prompt; pipes work
 clawd shell          # bash inside the container
+clawd yolo           # --dangerously-skip-permissions, this invocation only
 clawd version
 ```
 
-Reserved subcommands: `build`, `update`, `self-update`, `shell`, `version`,
-`help-clawd`. Anything else is passed to `claude`. Use `clawd -- args` if
-something collides.
+Reserved subcommands: `build`, `update`, `self-update`, `shell`, `yolo`,
+`version`, `help-clawd`. Anything else is passed to `claude`. Use
+`clawd -- args` if something collides.
+
+`clawd yolo` runs Claude Code with permission prompts disabled for that one
+invocation. It's opt-in per-call, not persistent. The container sandbox is
+the only thing protecting your host if Claude does something unexpected, so
+use it accordingly.
 
 ## What's mounted
 
