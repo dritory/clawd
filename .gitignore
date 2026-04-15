@@ -1,0 +1,7 @@
+# Per-user Claude Code settings
+.claude/
+.claude.json
+
+# OS / editor noise
+.DS_Store
+*.swp

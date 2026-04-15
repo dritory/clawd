@@ -1,0 +1,89 @@
+# clawd
+
+Run Claude Code in a Docker container, using your existing host login.
+
+## Install
+
+```
+curl -fsSL https://raw.githubusercontent.com/dritory/clawd/main/install.sh | sh
+```
+
+Requires docker. The container image is built the first time you run `clawd`.
+
+Local checkout:
+
+```
+CLAWD_INSTALL_LOCAL=./clawd sh install.sh
+```
+
+Updating:
+
+```
+clawd self-update     # refresh the wrapper script
+clawd update          # rebuild the image (newer Claude Code)
+```
+
+Bash completion is installed alongside the wrapper. For zsh, put
+`autoload -U bashcompinit && bashcompinit` in `~/.zshrc` before sourcing the
+completion file.
+
+## Usage
+
+```
+clawd                # claude in $PWD
+clawd -p "hello"     # one-shot prompt; pipes work
+clawd shell          # bash inside the container
+clawd version
+```
+
+Reserved subcommands: `build`, `update`, `self-update`, `shell`, `version`,
+`help-clawd`. Anything else is passed to `claude`. Use `clawd -- args` if
+something collides.
+
+## What's mounted
+
+- `$PWD` at `/workspace`
+- `~/.claude` at `/home/clawd/.claude` (live bind mount)
+- `~/.claude.json` at `/home/clawd/.claude.json` (copy in, copy out)
+
+That's all. No `~/.ssh`, no `~/.gitconfig`, nothing else from your home.
+The container runs as your host UID, so files in the workspace come out
+owned by you.
+
+## Concurrency
+
+Don't run host `claude` and `clawd` at the same time. They share
+`~/.claude`, and `history.jsonl` / `sessions/` / `projects/` will race.
+
+`.claude.json` is copy-in, copy-out rather than a live mount. Claude
+rewrites it with atomic rename, and file-level docker bind mounts reject
+that with EBUSY. clawd copies it into a state dir before each run and
+copies it back after. In-container edits persist on clean exit
+(including `Ctrl-C`, `SIGTERM`, `SIGHUP`). A `SIGKILL` or daemon crash
+drops the copy-back.
+
+## Platforms
+
+Linux, macOS, WSL 2. x86_64 and arm64. Native Windows: use WSL.
+
+## Environment
+
+```
+CLAWD_IMAGE               image tag (default clawd:latest)
+CLAWD_WORKSPACE           what to mount at /workspace (default $PWD)
+CLAWD_HOST_CLAUDE_DIR     live-mount source (default $HOME/.claude)
+CLAWD_HOST_CLAUDE_JSON    copy-in source (default $HOME/.claude.json)
+CLAWD_CLAUDE_VERSION      passed to claude installer (latest | stable | X.Y.Z)
+CLAWD_ALPINE_IMAGE        base image override (digest-pinned by default)
+CLAWD_REPO, CLAWD_BRANCH  for self-update
+```
+
+## Security
+
+Your credentials live in `~/.claude/.credentials.json`, which the
+container can read. The trust boundary is the same as running host
+claude. There are no network restrictions.
+
+## License
+
+MIT or Apache 2.0.

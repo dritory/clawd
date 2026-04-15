@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# clawd: Claude Code in a docker container.
+# https://github.com/dritory/clawd
+
+set -euo pipefail
+
+CLAWD_VERSION="0.2.0"
+CLAWD_REPO="${CLAWD_REPO:-dritory/clawd}"
+CLAWD_BRANCH="${CLAWD_BRANCH:-main}"
+
+IMAGE_NAME="${CLAWD_IMAGE:-clawd:latest}"
+BUILD_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/clawd/build"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/clawd"
+WORKSPACE="${CLAWD_WORKSPACE:-$PWD}"
+
+ALPINE_IMAGE="${CLAWD_ALPINE_IMAGE:-alpine:3.22@sha256:55ae5d250caebc548793f321534bc6a8ef1d116f334f18f4ada1b2daad3251b2}"
+CLAUDE_CODE_VERSION="${CLAWD_CLAUDE_VERSION:-latest}"
+
+HOST_CLAUDE_DIR="${CLAWD_HOST_CLAUDE_DIR:-$HOME/.claude}"
+HOST_CLAUDE_JSON="${CLAWD_HOST_CLAUDE_JSON:-$HOME/.claude.json}"
+CONTAINER_HOME=/home/clawd
+
+die() { echo "clawd: $*" >&2; exit 1; }
+
+require_docker() {
+    command -v docker >/dev/null 2>&1 || die "docker not found on PATH"
+    docker info >/dev/null 2>&1 || die "docker daemon is not reachable"
+}
+
+write_build_context() {
+    mkdir -p "$BUILD_DIR"
+    cat >"$BUILD_DIR/Dockerfile" <<EOF
+# syntax=docker/dockerfile:1.7
+FROM ${ALPINE_IMAGE}
+
+RUN apk add --no-cache \\
+        bash curl ca-certificates git \\
+        libgcc libstdc++ ripgrep jq \\
+        su-exec
+
+ARG CLAWD_CLAUDE_VERSION=${CLAUDE_CODE_VERSION}
+RUN set -eux; \\
+    HOME=/opt/claude bash -c "curl -fsSL https://claude.ai/install.sh | bash -s \$CLAWD_CLAUDE_VERSION"; \\
+    rm -rf /opt/claude/.claude /opt/claude/.claude.json; \\
+    ln -s /opt/claude/.local/bin/claude /usr/local/bin/claude; \\
+    chmod -R a+rX /opt/claude
+
+ENV DISABLE_AUTOUPDATER=1 \\
+    USE_BUILTIN_RIPGREP=0
+
+RUN mkdir -p /home/clawd /workspace
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["claude"]
+EOF
+
+    cat >"$BUILD_DIR/entrypoint.sh" <<'EOF'
+#!/bin/sh
+set -e
+
+USER_UID=${USER_UID:-1000}
+USER_GID=${USER_GID:-1000}
+
+if [ "$USER_UID" -eq 0 ]; then
+    exec "$@"
+fi
+
+if getent group "$USER_GID" >/dev/null 2>&1; then
+    GROUP_NAME=$(getent group "$USER_GID" | cut -d: -f1)
+else
+    addgroup -g "$USER_GID" clawd 2>/dev/null || true
+    GROUP_NAME=clawd
+fi
+
+if getent passwd "$USER_UID" >/dev/null 2>&1; then
+    USER_NAME=$(getent passwd "$USER_UID" | cut -d: -f1)
+else
+    adduser -D -u "$USER_UID" -G "$GROUP_NAME" -h /home/clawd -s /bin/bash clawd 2>/dev/null || true
+    USER_NAME=clawd
+fi
+
+chown "$USER_UID:$USER_GID" /home/clawd 2>/dev/null || true
+
+# su-exec resets HOME from passwd; set it again after the uid drop.
+exec su-exec "$USER_NAME" env HOME=/home/clawd SHELL=/bin/bash "$@"
+EOF
+}
+
+image_exists() { docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; }
+
+build_image() {
+    write_build_context
+    local args=(build -t "$IMAGE_NAME")
+    [ "${1:-}" = "--no-cache" ] && args+=(--no-cache)
+    args+=("$BUILD_DIR")
+    docker "${args[@]}"
+}
+
+ensure_image() { image_exists || build_image; }
+
+prepare_mounts() {
+    [ -d "$HOST_CLAUDE_DIR" ]  || mkdir -p  "$HOST_CLAUDE_DIR"
+    [ -e "$HOST_CLAUDE_JSON" ] || : >"$HOST_CLAUDE_JSON"
+
+    # /home/clawd is a dir bind mount so the container can atomic-rename
+    # over .claude.json. Copy the host file in; sync_back copies it out.
+    mkdir -p "$STATE_DIR/home"
+    cp -f "$HOST_CLAUDE_JSON" "$STATE_DIR/home/.claude.json"
+}
+
+sync_back() {
+    if [ -f "$STATE_DIR/home/.claude.json" ]; then
+        cp -f "$STATE_DIR/home/.claude.json" "$HOST_CLAUDE_JSON"
+    fi
+}
+
+run_in_container() {
+    ensure_image
+    prepare_mounts
+
+    local flags=(-i)
+    if [ -t 0 ] && [ -t 1 ]; then
+        flags=(-i -t)
+    fi
+
+    local rc=0
+    trap sync_back EXIT INT TERM HUP
+    docker run --rm "${flags[@]}" \
+        -e USER_UID="$(id -u)" \
+        -e USER_GID="$(id -g)" \
+        -v "$WORKSPACE:/workspace" \
+        -v "$STATE_DIR/home:$CONTAINER_HOME" \
+        -v "$HOST_CLAUDE_DIR:$CONTAINER_HOME/.claude" \
+        "$IMAGE_NAME" \
+        "$@" || rc=$?
+    sync_back
+    trap - EXIT INT TERM HUP
+    return $rc
+}
+
+run_claude() {
+    if [ $# -eq 0 ]; then
+        run_in_container claude
+    else
+        run_in_container claude "$@"
+    fi
+}
+
+self_update() {
+    local url="https://raw.githubusercontent.com/${CLAWD_REPO}/${CLAWD_BRANCH}/install.sh"
+    command -v curl >/dev/null 2>&1 || die "curl is required for self-update"
+    echo "clawd: fetching installer from $url"
+    curl -fsSL "$url" | sh
+}
+
+usage() {
+    cat <<EOF
+clawd ${CLAWD_VERSION} — Docker wrapper for Claude Code
+
+Usage:
+  clawd [ARGS...]      run \`claude ARGS...\` in a container (default)
+  clawd build          build the container image
+  clawd update         rebuild with --no-cache to pick up a newer Claude Code
+  clawd self-update    update the clawd script itself
+  clawd shell          open an interactive bash shell in the container
+  clawd version        print clawd and Claude Code versions
+  clawd help-clawd     print this help
+  clawd -- ARGS...     forward ARGS verbatim (escape reserved subcommands)
+
+Env overrides:
+  CLAWD_IMAGE              image tag                  (default: clawd:latest)
+  CLAWD_WORKSPACE          host workspace dir         (default: \$PWD)
+  CLAWD_HOST_CLAUDE_DIR    host ~/.claude to mount    (default: \$HOME/.claude)
+  CLAWD_HOST_CLAUDE_JSON   host ~/.claude.json mount  (default: \$HOME/.claude.json)
+  CLAWD_CLAUDE_VERSION     claude version spec        (default: latest)
+                           values: latest | stable | X.Y.Z
+  CLAWD_ALPINE_IMAGE       pinned base image          (see script for default)
+  CLAWD_REPO               GitHub repo for self-update (default: dritory/clawd)
+EOF
+}
+
+require_docker
+
+case "${1:-}" in
+    build)        shift; build_image "$@" ;;
+    update)       build_image --no-cache ;;
+    self-update)  self_update ;;
+    shell)        run_in_container bash ;;
+    version)      ensure_image
+                  echo "clawd ${CLAWD_VERSION}"
+                  run_claude --version ;;
+    help-clawd)   usage ;;
+    --)           shift; run_claude "$@" ;;
+    *)            run_claude "$@" ;;
+esac
