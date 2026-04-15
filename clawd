@@ -15,10 +15,13 @@ WORKSPACE="${CLAWD_WORKSPACE:-$PWD}"
 
 ALPINE_IMAGE="${CLAWD_ALPINE_IMAGE:-alpine:3.22@sha256:55ae5d250caebc548793f321534bc6a8ef1d116f334f18f4ada1b2daad3251b2}"
 CLAUDE_CODE_VERSION="${CLAWD_CLAUDE_VERSION:-latest}"
+EXTRA_PACKAGES="${CLAWD_EXTRA_PACKAGES:-}"
 
 HOST_CLAUDE_DIR="${CLAWD_HOST_CLAUDE_DIR:-$HOME/.claude}"
 HOST_CLAUDE_JSON="${CLAWD_HOST_CLAUDE_JSON:-$HOME/.claude.json}"
-CONTAINER_HOME=/home/clawd
+# Mirror the host HOME path so absolute paths in ~/.claude state files
+# (plugin installPath, etc.) resolve inside the container.
+CONTAINER_HOME="${CLAWD_CONTAINER_HOME:-$HOME}"
 
 die() { echo "clawd: $*" >&2; exit 1; }
 
@@ -36,7 +39,8 @@ FROM ${ALPINE_IMAGE}
 RUN apk add --no-cache \\
         bash curl ca-certificates git \\
         libgcc libstdc++ ripgrep jq \\
-        su-exec
+        python3 py3-pip \\
+        su-exec ${EXTRA_PACKAGES}
 
 ARG CLAWD_CLAUDE_VERSION=${CLAUDE_CODE_VERSION}
 RUN set -eux; \\
@@ -48,10 +52,9 @@ RUN set -eux; \\
     chmod -R a+rX /opt/claude
 
 ENV DISABLE_AUTOUPDATER=1 \\
-    USE_BUILTIN_RIPGREP=0 \\
-    PATH="/home/clawd/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    USE_BUILTIN_RIPGREP=0
 
-RUN mkdir -p /home/clawd /workspace
+RUN mkdir -p /workspace
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
@@ -67,6 +70,7 @@ set -e
 
 USER_UID=${USER_UID:-1000}
 USER_GID=${USER_GID:-1000}
+CONTAINER_HOME=${CONTAINER_HOME:-/home/clawd}
 
 if [ "$USER_UID" -eq 0 ]; then
     exec "$@"
@@ -82,20 +86,23 @@ fi
 if getent passwd "$USER_UID" >/dev/null 2>&1; then
     USER_NAME=$(getent passwd "$USER_UID" | cut -d: -f1)
 else
-    adduser -D -u "$USER_UID" -G "$GROUP_NAME" -h /home/clawd -s /bin/bash clawd 2>/dev/null || true
+    adduser -D -u "$USER_UID" -G "$GROUP_NAME" -h "$CONTAINER_HOME" -s /bin/bash clawd 2>/dev/null || true
     USER_NAME=clawd
 fi
 
-chown "$USER_UID:$USER_GID" /home/clawd 2>/dev/null || true
+mkdir -p "$CONTAINER_HOME"
+chown "$USER_UID:$USER_GID" "$CONTAINER_HOME" 2>/dev/null || true
 
-# Make claude discoverable at $HOME/.local/bin (where the native installer
-# would have put it) in addition to /usr/local/bin.
-mkdir -p /home/clawd/.local/bin
-ln -sf /usr/local/bin/claude /home/clawd/.local/bin/claude
-chown -R "$USER_UID:$USER_GID" /home/clawd/.local 2>/dev/null || true
+mkdir -p "$CONTAINER_HOME/.local/bin"
+ln -sf /usr/local/bin/claude "$CONTAINER_HOME/.local/bin/claude"
+chown -R "$USER_UID:$USER_GID" "$CONTAINER_HOME/.local" 2>/dev/null || true
 
 # su-exec resets HOME from passwd; set it again after the uid drop.
-exec su-exec "$USER_NAME" env HOME=/home/clawd SHELL=/bin/bash "$@"
+exec su-exec "$USER_NAME" env \
+    HOME="$CONTAINER_HOME" \
+    SHELL=/bin/bash \
+    PATH="$CONTAINER_HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+    "$@"
 EOF
 }
 
@@ -149,6 +156,7 @@ run_in_container() {
     docker run --rm "${flags[@]}" \
         -e USER_UID="$(id -u)" \
         -e USER_GID="$(id -g)" \
+        -e CONTAINER_HOME="$CONTAINER_HOME" \
         -v "$WORKSPACE:/workspace" \
         -v "$SESSION_STATE/home:$CONTAINER_HOME" \
         -v "$HOST_CLAUDE_DIR:$CONTAINER_HOME/.claude" \
@@ -197,6 +205,7 @@ Env overrides:
   CLAWD_CLAUDE_VERSION     claude version spec        (default: latest)
                            values: latest | stable | X.Y.Z
   CLAWD_ALPINE_IMAGE       pinned base image          (see script for default)
+  CLAWD_EXTRA_PACKAGES     additional apk packages    (e.g. "nodejs go")
   CLAWD_REPO               GitHub repo for self-update (default: dritory/clawd)
 EOF
 }

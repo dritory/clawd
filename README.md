@@ -87,6 +87,7 @@ CLAWD_HOST_CLAUDE_DIR     live-mount source (default $HOME/.claude)
 CLAWD_HOST_CLAUDE_JSON    copy-in source (default $HOME/.claude.json)
 CLAWD_CLAUDE_VERSION      passed to claude installer (latest | stable | X.Y.Z)
 CLAWD_ALPINE_IMAGE        base image override (digest-pinned by default)
+CLAWD_EXTRA_PACKAGES      extra apk packages baked into the image (e.g. "nodejs go")
 CLAWD_REPO, CLAWD_BRANCH  for self-update
 ```
 
