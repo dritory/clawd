@@ -13,7 +13,7 @@ BUILD_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/clawd/build"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/clawd"
 WORKSPACE="${CLAWD_WORKSPACE:-$PWD}"
 
-ALPINE_IMAGE="${CLAWD_ALPINE_IMAGE:-alpine:3.22@sha256:55ae5d250caebc548793f321534bc6a8ef1d116f334f18f4ada1b2daad3251b2}"
+BASE_IMAGE="${CLAWD_BASE_IMAGE:-debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a}"
 CLAUDE_CODE_VERSION="${CLAWD_CLAUDE_VERSION:-latest}"
 EXTRA_PACKAGES="${CLAWD_EXTRA_PACKAGES:-}"
 
@@ -34,13 +34,15 @@ write_build_context() {
     mkdir -p "$BUILD_DIR"
     cat >"$BUILD_DIR/Dockerfile" <<EOF
 # syntax=docker/dockerfile:1.7
-FROM ${ALPINE_IMAGE}
+FROM ${BASE_IMAGE}
 
-RUN apk add --no-cache \\
+RUN apt-get update && \\
+    apt-get install -y --no-install-recommends \\
         bash curl ca-certificates git \\
-        libgcc libstdc++ ripgrep jq \\
-        python3 py3-pip \\
-        su-exec ${EXTRA_PACKAGES}
+        ripgrep jq \\
+        python3 python3-pip \\
+        gosu ${EXTRA_PACKAGES} && \\
+    rm -rf /var/lib/apt/lists/*
 
 ARG CLAWD_CLAUDE_VERSION=${CLAUDE_CODE_VERSION}
 RUN set -eux; \\
@@ -51,8 +53,7 @@ RUN set -eux; \\
     ln -s /opt/claude/.local/bin/claude /usr/local/bin/claude; \\
     chmod -R a+rX /opt/claude
 
-ENV DISABLE_AUTOUPDATER=1 \\
-    USE_BUILTIN_RIPGREP=0
+ENV DISABLE_AUTOUPDATER=1
 
 RUN mkdir -p /workspace
 
@@ -65,7 +66,7 @@ CMD ["claude"]
 EOF
 
     cat >"$BUILD_DIR/entrypoint.sh" <<'EOF'
-#!/bin/sh
+#!/bin/bash
 set -e
 
 USER_UID=${USER_UID:-1000}
@@ -79,14 +80,14 @@ fi
 if getent group "$USER_GID" >/dev/null 2>&1; then
     GROUP_NAME=$(getent group "$USER_GID" | cut -d: -f1)
 else
-    addgroup -g "$USER_GID" clawd 2>/dev/null || true
+    groupadd -g "$USER_GID" clawd
     GROUP_NAME=clawd
 fi
 
 if getent passwd "$USER_UID" >/dev/null 2>&1; then
     USER_NAME=$(getent passwd "$USER_UID" | cut -d: -f1)
 else
-    adduser -D -u "$USER_UID" -G "$GROUP_NAME" -h "$CONTAINER_HOME" -s /bin/bash clawd 2>/dev/null || true
+    useradd -M -u "$USER_UID" -g "$GROUP_NAME" -d "$CONTAINER_HOME" -s /bin/bash clawd
     USER_NAME=clawd
 fi
 
@@ -97,8 +98,8 @@ mkdir -p "$CONTAINER_HOME/.local/bin"
 ln -sf /usr/local/bin/claude "$CONTAINER_HOME/.local/bin/claude"
 chown -R "$USER_UID:$USER_GID" "$CONTAINER_HOME/.local" 2>/dev/null || true
 
-# su-exec resets HOME from passwd; set it again after the uid drop.
-exec su-exec "$USER_NAME" env \
+# gosu preserves HOME/env (unlike su-exec which resets from passwd).
+exec gosu "$USER_NAME" env \
     HOME="$CONTAINER_HOME" \
     SHELL=/bin/bash \
     PATH="$CONTAINER_HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
@@ -204,7 +205,7 @@ Env overrides:
   CLAWD_HOST_CLAUDE_JSON   host ~/.claude.json mount  (default: \$HOME/.claude.json)
   CLAWD_CLAUDE_VERSION     claude version spec        (default: latest)
                            values: latest | stable | X.Y.Z
-  CLAWD_ALPINE_IMAGE       pinned base image          (see script for default)
+  CLAWD_BASE_IMAGE         pinned base image          (see script for default)
   CLAWD_EXTRA_PACKAGES     additional apk packages    (e.g. "nodejs go")
   CLAWD_REPO               GitHub repo for self-update (default: dritory/clawd)
 EOF

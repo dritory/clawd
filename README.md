@@ -1,6 +1,6 @@
 # clawd
 
-Run Claude Code in a Docker container, using your existing host login.
+Run Claude Code in a Docker container on debian:trixie-slim, using your existing host login.
 
 ## Install
 
@@ -86,7 +86,7 @@ CLAWD_WORKSPACE           what to mount at /workspace (default $PWD)
 CLAWD_HOST_CLAUDE_DIR     live-mount source (default $HOME/.claude)
 CLAWD_HOST_CLAUDE_JSON    copy-in source (default $HOME/.claude.json)
 CLAWD_CLAUDE_VERSION      passed to claude installer (latest | stable | X.Y.Z)
-CLAWD_ALPINE_IMAGE        base image override (digest-pinned by default)
+CLAWD_BASE_IMAGE          base image override (digest-pinned debian:trixie-slim)
 CLAWD_EXTRA_PACKAGES      extra apk packages baked into the image (e.g. "nodejs go")
 CLAWD_REPO, CLAWD_BRANCH  for self-update
 ```
