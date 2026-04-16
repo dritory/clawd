@@ -248,7 +248,23 @@ test_env_filtering
 test_env_passthrough
 test_config_file
 test_allow_write
+test_claude_starts() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    if ! command -v claude >/dev/null 2>&1; then
+        printf 'skip claude start: claude not installed\n'
+        return
+    fi
+    local out
+    out=$("$CLAWD" -- --version 2>&1)
+    if printf '%s' "$out" | grep -q "Claude Code"; then
+        ok "sandbox: claude starts"
+    else
+        nope "sandbox: claude starts" "got: $out"
+    fi
+}
+
 test_doctor
+test_claude_starts
 test_completion_sourceable
 test_installer_sandbox
 
