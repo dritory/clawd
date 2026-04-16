@@ -74,29 +74,31 @@ test_sandbox_write_project() {
     rm -f "$testfile"
 }
 
-test_sandbox_home_blocked() {
+test_sandbox_home_writable() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
-    local out
-    out=$("$CLAWD" shell -c "touch $HOME/clawd-escape-test 2>&1" 2>/dev/null || true)
-    if printf '%s' "$out" | grep -qi "read-only"; then
-        ok "sandbox: write to \$HOME root blocked"
-    else
-        nope "sandbox: write to \$HOME root blocked" "got: $out"
-    fi
-    rm -f "$HOME/clawd-escape-test" 2>/dev/null || true
-}
-
-test_sandbox_cache_writable() {
-    if ! command -v bwrap >/dev/null 2>&1; then return; fi
-    mkdir -p "$HOME/.cache"
-    local testfile="$HOME/.cache/clawd-test-$$"
+    local testfile="$HOME/clawd-test-$$"
     "$CLAWD" shell -c "echo ok > $testfile" 2>/dev/null
     if [ -f "$testfile" ]; then
-        ok "sandbox: write to ~/.cache allowed"
+        ok "sandbox: write to \$HOME allowed"
     else
-        nope "sandbox: write to ~/.cache allowed" "file not created"
+        nope "sandbox: write to \$HOME allowed" "file not created"
     fi
     rm -f "$testfile"
+}
+
+test_sandbox_bashrc_protected() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    if [ ! -f "$HOME/.bashrc" ]; then
+        printf 'skip bashrc: no ~/.bashrc\n'
+        return
+    fi
+    local out
+    out=$("$CLAWD" shell -c "echo bad >> $HOME/.bashrc" 2>&1 || true)
+    if printf '%s' "$out" | grep -qi "read-only\|permission denied"; then
+        ok "sandbox: ~/.bashrc is read-only"
+    else
+        nope "sandbox: ~/.bashrc is read-only" "got: $out"
+    fi
 }
 
 test_sandbox_write_blocked() {
@@ -240,8 +242,8 @@ test_shellcheck
 test_help_output
 test_absent_bwrap
 test_sandbox_write_project
-test_sandbox_home_blocked
-test_sandbox_cache_writable
+test_sandbox_home_writable
+test_sandbox_bashrc_protected
 test_sandbox_write_blocked
 test_sandbox_ssh_readonly
 test_env_filtering

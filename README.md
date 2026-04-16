@@ -3,8 +3,8 @@
 [![CI](https://github.com/dritory/clawd/actions/workflows/ci.yml/badge.svg)](https://github.com/dritory/clawd/actions/workflows/ci.yml)
 
 Sandboxed [Claude Code](https://code.claude.com) using
-[bubblewrap](https://github.com/containers/bubblewrap). The filesystem
-is read-only except your project dir and a whitelist of dev tool paths.
+[bubblewrap](https://github.com/containers/bubblewrap). The system
+is read-only, `$HOME` is writable but sensitive dotfiles are protected.
 `clawd yolo` skips all permission prompts.
 
 ## Install
@@ -36,14 +36,14 @@ Anything not a reserved subcommand (`yolo`, `shell`, `doctor`, `version`,
 
 clawd wraps claude in a bubblewrap sandbox:
 
-- **`/` is read-only.** Can't modify system files, `/etc`, `/usr`,
-  `~/.bashrc`, other projects, or anything outside the whitelist.
+- **`/` is read-only.** Can't modify system files, `/etc`, `/usr`.
+- **`$HOME` is writable.** Dev tools, package managers, and claude's
+  own config all work without hitting walls.
 - **`$PWD` is writable.** The project you're working in.
-- **Dev tool dirs are writable.** `~/.cache`, `~/.local`, `~/.config`,
-  `~/.npm`, `~/.cargo`, `~/.rustup`, `~/.claude`. Pip, npm, cargo,
-  compilers, build systems all work.
-- **`~/.ssh`, `~/.gnupg`, `~/.claude/.credentials.json` are read-only.**
-  Keys and auth tokens can be read (git pull works) but not modified.
+- **Sensitive dotfiles are read-only.** `~/.ssh`, `~/.gnupg`,
+  `~/.claude/.credentials.json`, `~/.bashrc`, `~/.profile`, `~/.zshrc`,
+  `~/.bash_history`. Keys, auth tokens, and shell rc can be read but
+  not modified.
 - **`/tmp` and `/var/tmp` are writable.** Shared with host (already
   world-writable and ephemeral, so no security benefit to isolating).
 - **Process namespace is isolated.** Claude can't see or signal host
