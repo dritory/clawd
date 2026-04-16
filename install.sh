@@ -13,6 +13,19 @@ SCRIPT_NAME=clawd
 msg() { printf 'clawd-install: %s\n' "$*"; }
 die() { printf 'clawd-install: %s\n' "$*" >&2; exit 1; }
 
+# Check dependencies.
+command -v bwrap >/dev/null 2>&1 || {
+    msg "bubblewrap (bwrap) is not installed"
+    if command -v apt-get >/dev/null 2>&1; then
+        msg "install it: sudo apt-get install bubblewrap"
+    elif command -v pacman >/dev/null 2>&1; then
+        msg "install it: sudo pacman -S bubblewrap"
+    elif command -v dnf >/dev/null 2>&1; then
+        msg "install it: sudo dnf install bubblewrap"
+    fi
+    die "install bubblewrap first, then re-run this installer"
+}
+
 SUDO=""
 if [ -w /usr/local/bin ] 2>/dev/null; then
     DIR=/usr/local/bin
@@ -46,7 +59,6 @@ install_completion() {
         [ -r "$LOCAL_COMPLETION" ] || { msg "skipping completion: $LOCAL_COMPLETION not readable"; rm -f "$comp_tmp"; return 1; }
         cp "$LOCAL_COMPLETION" "$comp_tmp"
     elif [ -n "$LOCAL_SRC" ]; then
-        # Try a sibling `completions/clawd.bash` next to a local clawd source.
         local_comp="$(dirname "$LOCAL_SRC")/completions/clawd.bash"
         if [ -r "$local_comp" ]; then
             cp "$local_comp" "$comp_tmp"

@@ -6,13 +6,13 @@ on:
   pull_request:
 
 jobs:
-  lint-and-test:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y shellcheck bubblewrap
 
       - name: Run tests
         run: tests/run-tests.sh

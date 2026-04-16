@@ -1,101 +1,61 @@
 # clawd
 
-Run Claude Code in a Docker container on debian:trixie-slim, using your existing host login.
+Sandboxed Claude Code using bubblewrap. Your system stays read-only,
+`$HOME` is writable so dev tools work, and `clawd yolo` skips all
+permission prompts.
 
 ## Install
 
 ```
+sudo apt install bubblewrap       # or pacman -S bubblewrap, dnf install bubblewrap
 curl -fsSL https://raw.githubusercontent.com/dritory/clawd/main/install.sh | sh
 ```
 
-Requires docker. The container image is built the first time you run `clawd`.
-
-Local checkout:
+From a checkout:
 
 ```
 CLAWD_INSTALL_LOCAL=./clawd sh install.sh
 ```
 
-Updating:
-
-```
-clawd self-update     # refresh the wrapper script
-clawd update          # rebuild the image (newer Claude Code)
-```
-
-Bash completion is installed alongside the wrapper. For zsh, put
-`autoload -U bashcompinit && bashcompinit` in `~/.zshrc` before sourcing the
-completion file.
-
 ## Usage
 
 ```
-clawd                # claude in $PWD
-clawd -p "hello"     # one-shot prompt; pipes work
-clawd shell          # bash inside the container
-clawd yolo           # --dangerously-skip-permissions, this invocation only
-clawd version
+clawd                # claude with filesystem sandbox
+clawd yolo           # sandbox + skip all permission prompts
+clawd shell          # sandboxed bash (for debugging)
+clawd doctor         # check bwrap and claude work
 ```
 
-Reserved subcommands: `build`, `update`, `self-update`, `shell`, `yolo`,
-`version`, `help-clawd`. Anything else is passed to `claude`. Use
-`clawd -- args` if something collides.
+Anything not a reserved subcommand (`yolo`, `shell`, `doctor`, `version`,
+`help-clawd`) is forwarded to `claude`. Use `clawd -- args` to escape.
 
-`clawd yolo` runs Claude Code with permission prompts disabled for that one
-invocation. It's opt-in per-call, not persistent. The container sandbox is
-the only thing protecting your host if Claude does something unexpected, so
-use it accordingly.
+## How it works
 
-## What's mounted
+clawd wraps claude in a bubblewrap sandbox:
 
-- `$PWD` at `/workspace`
-- `~/.claude` at `/home/clawd/.claude` (live bind mount)
-- `~/.claude.json` at `/home/clawd/.claude.json` (copy in, copy out)
+- **`/` is read-only.** Can't modify system files, `/etc`, `/usr`, other
+  projects.
+- **`$HOME` is writable.** Dev tools work normally: pip, npm, cargo,
+  compilers, build systems.
+- **`~/.ssh` and `~/.gnupg` are read-only.** Keys can be read (git
+  pull works) but not modified or exfiltrated via write.
+- **`~/.claude/.credentials.json` is read-only.** Auth token can't be
+  overwritten.
+- **`/tmp` and `/var/tmp` are tmpfs.** Isolated per session.
+- **Process namespace is isolated.** Claude can't see or signal host
+  processes.
+- **Sensitive env vars are stripped.** Anything matching `AWS_*`,
+  `*_SECRET*`, `*_TOKEN*`, `*_KEY*`, `*_PASSWORD*`, `*_CREDENTIAL*`
+  is removed from the sandbox environment.
 
-That's all. No `~/.ssh`, no `~/.gitconfig`, nothing else from your home.
-The container runs as your host UID, so files in the workspace come out
-owned by you.
-
-## Concurrency
-
-Multiple clawd sessions run fine side-by-side. Each gets its own
-ephemeral HOME, so settings writes and claude's lock files don't
-collide.
-
-Don't mix clawd with host `claude` at the same time. They share
-`~/.claude`, so `history.jsonl` / `sessions/` / `projects/` race, and
-clawd's copy-back of `.claude.json` on exit can overwrite something
-host claude just wrote.
-
-`.claude.json` is copy-in, copy-out rather than a live mount. Claude
-rewrites it with atomic rename, which docker file bind mounts reject
-with EBUSY. Each clawd gets its own snapshot from invocation time;
-changes persist on clean exit (`Ctrl-C`, `SIGTERM`, `SIGHUP`). A
-`SIGKILL` or daemon crash drops the copy-back. Two concurrent clawds
-don't see each other's `.claude.json` edits until they restart.
-
-## Platforms
-
-Linux, macOS, WSL 2. x86_64 and arm64. Native Windows: use WSL.
+Same OS, same tools, same glibc, same plugins. No Docker, no image.
 
 ## Environment
 
 ```
-CLAWD_IMAGE               image tag (default clawd:latest)
-CLAWD_WORKSPACE           what to mount at /workspace (default $PWD)
-CLAWD_HOST_CLAUDE_DIR     live-mount source (default $HOME/.claude)
-CLAWD_HOST_CLAUDE_JSON    copy-in source (default $HOME/.claude.json)
-CLAWD_CLAUDE_VERSION      passed to claude installer (latest | stable | X.Y.Z)
-CLAWD_BASE_IMAGE          base image override (digest-pinned debian:trixie-slim)
-CLAWD_EXTRA_PACKAGES      extra apk packages baked into the image (e.g. "nodejs go")
-CLAWD_REPO, CLAWD_BRANCH  for self-update
+CLAWD_ENV             env vars to keep (comma-separated, e.g. "AWS_PROFILE,GITHUB_TOKEN")
+CLAWD_ALLOW_WRITE     extra writable paths (colon-separated, e.g. "/data:/mnt/shared")
 ```
-
-## Security
-
-Your credentials live in `~/.claude/.credentials.json`, which the
-container can read. The trust boundary is the same as running host
-claude. There are no network restrictions.
 
 ## License
 

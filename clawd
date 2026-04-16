@@ -1,228 +1,101 @@
 #!/usr/bin/env bash
-# clawd: Claude Code in a docker container.
+# clawd: sandboxed claude using bubblewrap.
 # https://github.com/dritory/clawd
-
 set -euo pipefail
 
-CLAWD_VERSION="0.2.0"
-CLAWD_REPO="${CLAWD_REPO:-dritory/clawd}"
-CLAWD_BRANCH="${CLAWD_BRANCH:-main}"
-
-IMAGE_NAME="${CLAWD_IMAGE:-clawd:latest}"
-BUILD_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/clawd/build"
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/clawd"
-WORKSPACE="${CLAWD_WORKSPACE:-$PWD}"
-
-BASE_IMAGE="${CLAWD_BASE_IMAGE:-debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a}"
-CLAUDE_CODE_VERSION="${CLAWD_CLAUDE_VERSION:-latest}"
-EXTRA_PACKAGES="${CLAWD_EXTRA_PACKAGES:-}"
-
-HOST_CLAUDE_DIR="${CLAWD_HOST_CLAUDE_DIR:-$HOME/.claude}"
-HOST_CLAUDE_JSON="${CLAWD_HOST_CLAUDE_JSON:-$HOME/.claude.json}"
-# Mirror the host HOME path so absolute paths in ~/.claude state files
-# (plugin installPath, etc.) resolve inside the container.
-CONTAINER_HOME="${CLAWD_CONTAINER_HOME:-$HOME}"
+CLAWD_VERSION="1.0.0"
 
 die() { echo "clawd: $*" >&2; exit 1; }
 
-require_docker() {
-    command -v docker >/dev/null 2>&1 || die "docker not found on PATH"
-    docker info >/dev/null 2>&1 || die "docker daemon is not reachable"
-}
+run_sandboxed() {
+    local bwrap_args=(
+        --ro-bind / /
+        --dev /dev
+        --proc /proc
+        --tmpfs /tmp
+        --tmpfs /var/tmp
+        --unshare-pid
+        --bind "$HOME" "$HOME"
+    )
 
-write_build_context() {
-    mkdir -p "$BUILD_DIR"
-    cat >"$BUILD_DIR/Dockerfile" <<EOF
-# syntax=docker/dockerfile:1.7
-FROM ${BASE_IMAGE}
+    # Protect sensitive dotfiles (read-only within writable $HOME).
+    for p in "$HOME/.ssh" "$HOME/.gnupg"; do
+        [ -d "$p" ] && bwrap_args+=(--ro-bind "$p" "$p")
+    done
+    local creds="$HOME/.claude/.credentials.json"
+    [ -f "$creds" ] && bwrap_args+=(--ro-bind "$creds" "$creds")
 
-RUN apt-get update && \\
-    apt-get install -y --no-install-recommends \\
-        bash curl ca-certificates git \\
-        ripgrep jq \\
-        python3 python3-pip \\
-        gosu ${EXTRA_PACKAGES} && \\
-    rm -rf /var/lib/apt/lists/*
-
-ARG CLAWD_CLAUDE_VERSION=${CLAUDE_CODE_VERSION}
-RUN set -eux; \\
-    export HOME=/opt/claude; \\
-    export PATH="\$HOME/.local/bin:\$PATH"; \\
-    bash -c "curl -fsSL https://claude.ai/install.sh | bash -s \$CLAWD_CLAUDE_VERSION"; \\
-    rm -rf /opt/claude/.claude /opt/claude/.claude.json; \\
-    ln -s /opt/claude/.local/bin/claude /usr/local/bin/claude; \\
-    chmod -R a+rX /opt/claude
-
-ENV DISABLE_AUTOUPDATER=1
-
-RUN mkdir -p /workspace
-
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
-WORKDIR /workspace
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["claude"]
-EOF
-
-    cat >"$BUILD_DIR/entrypoint.sh" <<'EOF'
-#!/bin/bash
-set -e
-
-USER_UID=${USER_UID:-1000}
-USER_GID=${USER_GID:-1000}
-CONTAINER_HOME=${CONTAINER_HOME:-/home/clawd}
-
-if [ "$USER_UID" -eq 0 ]; then
-    exec "$@"
-fi
-
-if getent group "$USER_GID" >/dev/null 2>&1; then
-    GROUP_NAME=$(getent group "$USER_GID" | cut -d: -f1)
-else
-    groupadd -g "$USER_GID" clawd
-    GROUP_NAME=clawd
-fi
-
-if getent passwd "$USER_UID" >/dev/null 2>&1; then
-    USER_NAME=$(getent passwd "$USER_UID" | cut -d: -f1)
-else
-    useradd -M -u "$USER_UID" -g "$GROUP_NAME" -d "$CONTAINER_HOME" -s /bin/bash clawd
-    USER_NAME=clawd
-fi
-
-mkdir -p "$CONTAINER_HOME"
-chown "$USER_UID:$USER_GID" "$CONTAINER_HOME" 2>/dev/null || true
-
-mkdir -p "$CONTAINER_HOME/.local/bin"
-ln -sf /usr/local/bin/claude "$CONTAINER_HOME/.local/bin/claude"
-chown -R "$USER_UID:$USER_GID" "$CONTAINER_HOME/.local" 2>/dev/null || true
-
-# gosu preserves HOME/env (unlike su-exec which resets from passwd).
-exec gosu "$USER_NAME" env \
-    HOME="$CONTAINER_HOME" \
-    SHELL=/bin/bash \
-    PATH="$CONTAINER_HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-    "$@"
-EOF
-}
-
-image_exists() { docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; }
-
-build_image() {
-    write_build_context
-    local args=(build -t "$IMAGE_NAME")
-    [ "${1:-}" = "--no-cache" ] && args+=(--no-cache)
-    args+=("$BUILD_DIR")
-    docker "${args[@]}"
-}
-
-ensure_image() { image_exists || build_image; }
-
-SESSION_STATE=""
-
-prepare_mounts() {
-    [ -d "$HOST_CLAUDE_DIR" ]  || mkdir -p  "$HOST_CLAUDE_DIR"
-    [ -e "$HOST_CLAUDE_JSON" ] || : >"$HOST_CLAUDE_JSON"
-
-    # Ephemeral per-invocation HOME so two concurrent clawds don't share
-    # state files or lock files. The dir must be a bind mount (not a file)
-    # so claude's atomic-rename on .claude.json works.
-    mkdir -p "$STATE_DIR/sessions"
-    SESSION_STATE=$(mktemp -d "$STATE_DIR/sessions/XXXXXX")
-    mkdir -p "$SESSION_STATE/home"
-    cp -f "$HOST_CLAUDE_JSON" "$SESSION_STATE/home/.claude.json"
-}
-
-sync_back() {
-    [ -n "$SESSION_STATE" ] || return 0
-    if [ -f "$SESSION_STATE/home/.claude.json" ]; then
-        cp -f "$SESSION_STATE/home/.claude.json" "$HOST_CLAUDE_JSON"
-    fi
-    rm -rf "$SESSION_STATE"
-    SESSION_STATE=""
-}
-
-run_in_container() {
-    ensure_image
-    prepare_mounts
-
-    local flags=(-i)
-    if [ -t 0 ] && [ -t 1 ]; then
-        flags=(-i -t)
+    # Extra writable paths.
+    if [ -n "${CLAWD_ALLOW_WRITE:-}" ]; then
+        IFS=':' read -ra extra <<< "$CLAWD_ALLOW_WRITE"
+        for p in "${extra[@]}"; do
+            [ -e "$p" ] && bwrap_args+=(--bind "$p" "$p")
+        done
     fi
 
-    local rc=0
-    trap sync_back EXIT INT TERM HUP
-    docker run --rm "${flags[@]}" \
-        -e USER_UID="$(id -u)" \
-        -e USER_GID="$(id -g)" \
-        -e CONTAINER_HOME="$CONTAINER_HOME" \
-        -v "$WORKSPACE:/workspace" \
-        -v "$SESSION_STATE/home:$CONTAINER_HOME" \
-        -v "$HOST_CLAUDE_DIR:$CONTAINER_HOME/.claude" \
-        "$IMAGE_NAME" \
-        "$@" || rc=$?
-    sync_back
-    trap - EXIT INT TERM HUP
-    return $rc
+    # Strip env vars matching these patterns unless explicitly allowed.
+    local deny='(^AWS_|_SECRET|_TOKEN|_KEY|_PASSWORD|_CREDENTIAL)'
+    local allow_csv="${CLAWD_ENV:-}"
+    while IFS='=' read -r name _; do
+        if [[ "$name" =~ $deny ]]; then
+            local keep=0
+            if [ -n "$allow_csv" ]; then
+                IFS=',' read -ra allow_list <<< "$allow_csv"
+                for a in "${allow_list[@]}"; do
+                    [ "$name" = "$a" ] && keep=1
+                done
+            fi
+            [ "$keep" -eq 0 ] && bwrap_args+=(--unsetenv "$name")
+        fi
+    done < <(env)
+
+    bwrap_args+=(--setenv CLAWD 1 --chdir "$PWD" --)
+
+    exec bwrap "${bwrap_args[@]}" "$@"
 }
 
-run_claude() {
-    if [ $# -eq 0 ]; then
-        run_in_container claude
-    else
-        run_in_container claude "$@"
-    fi
-}
-
-self_update() {
-    local url="https://raw.githubusercontent.com/${CLAWD_REPO}/${CLAWD_BRANCH}/install.sh"
-    command -v curl >/dev/null 2>&1 || die "curl is required for self-update"
-    echo "clawd: fetching installer from $url"
-    curl -fsSL "$url" | sh
+doctor() {
+    local ok=0 fail=0
+    check() {
+        if "$@" >/dev/null 2>&1; then
+            echo "  ok   $*"; ok=$((ok+1))
+        else
+            echo "  FAIL $*"; fail=$((fail+1))
+        fi
+    }
+    check command -v bwrap
+    check command -v claude
+    # Quick sandbox smoke test.
+    check bwrap --ro-bind / / --dev /dev --proc /proc -- true
+    echo "$ok passed, $fail failed"
+    [ "$fail" -eq 0 ]
 }
 
 usage() {
     cat <<EOF
-clawd ${CLAWD_VERSION} — Docker wrapper for Claude Code
+clawd $CLAWD_VERSION — sandboxed claude
 
-Usage:
-  clawd [ARGS...]      run \`claude ARGS...\` in a container (default)
-  clawd yolo [ARGS...] run with --dangerously-skip-permissions (one-shot)
-  clawd build          build the container image
-  clawd update         rebuild with --no-cache to pick up a newer Claude Code
-  clawd self-update    update the clawd script itself
-  clawd shell          open an interactive bash shell in the container
-  clawd version        print clawd and Claude Code versions
-  clawd help-clawd     print this help
-  clawd -- ARGS...     forward ARGS verbatim (escape reserved subcommands)
+  clawd [args]        claude with filesystem sandbox
+  clawd yolo [args]   sandbox + skip all permission prompts
+  clawd shell         sandboxed bash (for debugging)
+  clawd doctor        check bwrap and claude work
+  clawd version
+  clawd help-clawd
 
-Env overrides:
-  CLAWD_IMAGE              image tag                  (default: clawd:latest)
-  CLAWD_WORKSPACE          host workspace dir         (default: \$PWD)
-  CLAWD_HOST_CLAUDE_DIR    host ~/.claude to mount    (default: \$HOME/.claude)
-  CLAWD_HOST_CLAUDE_JSON   host ~/.claude.json mount  (default: \$HOME/.claude.json)
-  CLAWD_CLAUDE_VERSION     claude version spec        (default: latest)
-                           values: latest | stable | X.Y.Z
-  CLAWD_BASE_IMAGE         pinned base image          (see script for default)
-  CLAWD_EXTRA_PACKAGES     additional apk packages    (e.g. "nodejs go")
-  CLAWD_REPO               GitHub repo for self-update (default: dritory/clawd)
+Env:
+  CLAWD_ENV             extra env vars to pass through (comma-separated)
+  CLAWD_ALLOW_WRITE     extra writable paths (colon-separated)
 EOF
 }
 
-require_docker
+command -v bwrap >/dev/null 2>&1 || die "bubblewrap not found (apt install bubblewrap)"
 
 case "${1:-}" in
-    build)        shift; build_image "$@" ;;
-    update)       build_image --no-cache ;;
-    self-update)  self_update ;;
-    shell)        run_in_container bash ;;
-    yolo)         shift; run_claude --dangerously-skip-permissions "$@" ;;
-    version)      ensure_image
-                  echo "clawd ${CLAWD_VERSION}"
-                  run_claude --version ;;
-    help-clawd)   usage ;;
-    --)           shift; run_claude "$@" ;;
-    *)            run_claude "$@" ;;
+    yolo)       shift; run_sandboxed claude --dangerously-skip-permissions "$@" ;;
+    shell)      shift; run_sandboxed bash "$@" ;;
+    doctor)     doctor ;;
+    version)    echo "clawd $CLAWD_VERSION"; claude --version ;;
+    help-clawd) usage ;;
+    --)         shift; run_sandboxed claude "$@" ;;
+    *)          run_sandboxed claude "$@" ;;
 esac

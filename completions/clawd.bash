@@ -9,7 +9,7 @@ _clawd() {
     }
 
     if [ "${cword:-$COMP_CWORD}" -eq 1 ]; then
-        local subs="build update self-update shell yolo version help-clawd"
+        local subs="yolo shell doctor version help-clawd"
         # shellcheck disable=SC2207
         COMPREPLY=( $(compgen -W "$subs" -- "$cur") )
         return 0

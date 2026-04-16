@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for clawd.
-#   tests/run-tests.sh [--no-build]
+#   tests/run-tests.sh
 # Exit code is the number of failures.
 
 set -uo pipefail
@@ -10,25 +10,14 @@ REPO=$(cd "$HERE/.." && pwd)
 CLAWD="$REPO/clawd"
 INSTALL="$REPO/install.sh"
 
-SKIP_BUILD=0
-[ "${1:-}" = "--no-build" ] && SKIP_BUILD=1
-
 pass=0
 fail=0
 ok()   { printf 'ok   %s\n' "$1"; pass=$((pass+1)); }
 nope() { printf 'FAIL %s: %s\n' "$1" "$2" >&2; fail=$((fail+1)); }
 
 test_syntax() {
-    if bash -n "$CLAWD" 2>/dev/null; then
-        ok "clawd: bash syntax"
-    else
-        nope "clawd: bash syntax" "bash -n failed"
-    fi
-    if sh -n "$INSTALL" 2>/dev/null; then
-        ok "install.sh: sh syntax"
-    else
-        nope "install.sh: sh syntax" "sh -n failed"
-    fi
+    bash -n "$CLAWD" 2>/dev/null && ok "clawd: bash syntax" || nope "clawd: bash syntax" "bash -n failed"
+    sh -n "$INSTALL" 2>/dev/null && ok "install.sh: sh syntax" || nope "install.sh: sh syntax" "sh -n failed"
 }
 
 test_shellcheck() {
@@ -36,31 +25,16 @@ test_shellcheck() {
         printf 'skip shellcheck: not installed\n'
         return
     fi
-    if shellcheck -S warning "$CLAWD" >/dev/null; then
-        ok "clawd: shellcheck"
-    else
-        nope "clawd: shellcheck" "see 'shellcheck $CLAWD'"
-    fi
-    if shellcheck -S warning "$INSTALL" >/dev/null; then
-        ok "install.sh: shellcheck"
-    else
-        nope "install.sh: shellcheck" "see 'shellcheck $INSTALL'"
-    fi
+    shellcheck -S warning "$CLAWD" >/dev/null && ok "clawd: shellcheck" || nope "clawd: shellcheck" "see shellcheck $CLAWD"
+    shellcheck -S warning "$INSTALL" >/dev/null && ok "install.sh: shellcheck" || nope "install.sh: shellcheck" "see shellcheck $INSTALL"
 }
 
 test_help_output() {
     local out
-    if ! out=$(PATH=/usr/bin:/bin "$CLAWD" help-clawd 2>&1); then
-        # If docker probe runs first we'll see an error; that's a regression.
-        nope "help-clawd without docker" "exited non-zero: $out"
-        return
-    fi
-    # Expect the doc to mention all reserved subcommands.
+    out=$("$CLAWD" help-clawd 2>&1) || true
     local missing=()
-    for want in "build" "update" "self-update" "shell" "yolo" "version"; do
-        if ! printf '%s' "$out" | grep -q "$want"; then
-            missing+=("$want")
-        fi
+    for want in "yolo" "shell" "doctor" "version"; do
+        printf '%s' "$out" | grep -q "$want" || missing+=("$want")
     done
     if [ "${#missing[@]}" -eq 0 ]; then
         ok "help-clawd lists subcommands"
@@ -69,35 +43,127 @@ test_help_output() {
     fi
 }
 
-test_help_without_docker() {
+test_absent_bwrap() {
     local stub
     stub=$(mktemp -d)
-    for t in env bash sh cat grep tr head id mkdir; do
+    for t in env bash sh cat grep tr id mkdir; do
         if src=$(command -v "$t"); then ln -sf "$src" "$stub/$t"; fi
     done
     local out
-    out=$(env -i PATH="$stub" HOME="$HOME" "$CLAWD" build 2>&1 || true)
-    if printf '%s' "$out" | grep -q "docker not found"; then
-        ok "absent docker: clean error"
+    out=$(env -i PATH="$stub" HOME="$HOME" "$CLAWD" version 2>&1 || true)
+    if printf '%s' "$out" | grep -q "bubblewrap not found"; then
+        ok "absent bwrap: clean error"
     else
-        nope "absent docker: clean error" "got: $out"
+        nope "absent bwrap: clean error" "got: $out"
     fi
     rm -rf "$stub"
+}
+
+test_sandbox_write_allowed() {
+    if ! command -v bwrap >/dev/null 2>&1; then
+        printf 'skip sandbox tests: bwrap not installed\n'
+        return
+    fi
+    local testdir
+    testdir=$(mktemp -d -p "$HOME")
+    "$CLAWD" shell -c "echo ok > $testdir/test.txt" 2>/dev/null
+    if [ -f "$testdir/test.txt" ] && grep -q ok "$testdir/test.txt"; then
+        ok "sandbox: write to \$HOME allowed"
+    else
+        nope "sandbox: write to \$HOME allowed" "file not created or wrong content"
+    fi
+    rm -rf "$testdir"
+}
+
+test_sandbox_write_blocked() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    local out
+    out=$("$CLAWD" shell -c "touch /etc/clawd-test 2>&1" 2>/dev/null || true)
+    if printf '%s' "$out" | grep -qi "read-only"; then
+        ok "sandbox: write to /etc blocked"
+    else
+        nope "sandbox: write to /etc blocked" "got: $out"
+    fi
+}
+
+test_sandbox_ssh_readonly() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    if [ ! -d "$HOME/.ssh" ]; then
+        printf 'skip ssh readonly: ~/.ssh does not exist\n'
+        return
+    fi
+    local out
+    out=$("$CLAWD" shell -c "touch $HOME/.ssh/clawd-test 2>&1" 2>/dev/null || true)
+    if printf '%s' "$out" | grep -qi "read-only"; then
+        ok "sandbox: ~/.ssh is read-only"
+    else
+        nope "sandbox: ~/.ssh is read-only" "got: $out"
+    fi
+}
+
+test_env_filtering() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    local out
+    out=$(AWS_SECRET_ACCESS_KEY=leaked "$CLAWD" shell -c 'echo "${AWS_SECRET_ACCESS_KEY:-stripped}"' 2>/dev/null)
+    if [ "$out" = "stripped" ]; then
+        ok "env: sensitive var stripped"
+    else
+        nope "env: sensitive var stripped" "got: $out"
+    fi
+}
+
+test_env_passthrough() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    local out
+    out=$(AWS_SECRET_ACCESS_KEY=kept CLAWD_ENV=AWS_SECRET_ACCESS_KEY "$CLAWD" shell -c 'echo "$AWS_SECRET_ACCESS_KEY"' 2>/dev/null)
+    if [ "$out" = "kept" ]; then
+        ok "env: CLAWD_ENV passthrough"
+    else
+        nope "env: CLAWD_ENV passthrough" "got: $out"
+    fi
+}
+
+test_allow_write() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    local testdir
+    testdir=$(mktemp -d -p /tmp)
+    CLAWD_ALLOW_WRITE="$testdir" "$CLAWD" shell -c "echo ok > $testdir/test.txt" 2>/dev/null
+    if [ -f "$testdir/test.txt" ]; then
+        ok "env: CLAWD_ALLOW_WRITE works"
+    else
+        nope "env: CLAWD_ALLOW_WRITE works" "file not created"
+    fi
+    rm -rf "$testdir"
+}
+
+test_doctor() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    if "$CLAWD" doctor >/dev/null 2>&1; then
+        ok "clawd doctor"
+    else
+        nope "clawd doctor" "exited non-zero"
+    fi
+}
+
+test_completion_sourceable() {
+    if bash -c "source '$REPO/completions/clawd.bash' && complete -p clawd" >/dev/null 2>&1; then
+        ok "completion: sources cleanly"
+    else
+        nope "completion: sources cleanly" "bash source + complete -p clawd failed"
+    fi
 }
 
 test_installer_sandbox() {
     local testhome testbin
     testhome=$(mktemp -d)
     testbin=$(mktemp -d)
-    # No sudo in PATH so the installer takes the ~/.local/bin path.
-    for t in sh cat cp rm mkdir grep printf install mktemp chmod ls dirname; do
+    for t in sh cat cp rm mkdir grep printf install mktemp chmod ls dirname command bwrap; do
         if src=$(command -v "$t"); then ln -sf "$src" "$testbin/$t"; fi
     done
     touch "$testhome/.bashrc"
 
     local runner="env -i HOME=$testhome PATH=$testbin SHELL=/bin/sh CLAWD_INSTALL_LOCAL=$CLAWD sh $INSTALL"
 
-    # First run: installs binary, appends rc line
     if ! $runner >/dev/null 2>&1; then
         nope "installer: first run" "exit non-zero"
         rm -rf "$testhome" "$testbin"
@@ -108,21 +174,14 @@ test_installer_sandbox() {
         rm -rf "$testhome" "$testbin"
         return
     fi
-    if ! grep -q "# Added by clawd installer" "$testhome/.bashrc"; then
-        nope "installer: first run" "rc not updated"
-        rm -rf "$testhome" "$testbin"
-        return
-    fi
     ok "installer: first run"
 
-    # Completion should be installed into the per-user XDG location.
     if [ -r "$testhome/.local/share/bash-completion/completions/clawd" ]; then
         ok "installer: completion placed"
     else
-        nope "installer: completion placed" "not found at ~/.local/share/bash-completion/completions/clawd"
+        nope "installer: completion placed" "not found"
     fi
 
-    # Second run: idempotent — no duplicate marker, no stray .profile
     $runner >/dev/null 2>&1
     local marker_count
     marker_count=$(grep -c "# Added by clawd installer" "$testhome/.bashrc")
@@ -137,54 +196,19 @@ test_installer_sandbox() {
     rm -rf "$testhome" "$testbin"
 }
 
-test_completion_sourceable() {
-    if bash -c "source '$REPO/completions/clawd.bash' && complete -p clawd" >/dev/null 2>&1; then
-        ok "completion: sources cleanly"
-    else
-        nope "completion: sources cleanly" "bash source + complete -p clawd failed"
-    fi
-}
-
-test_image_build_and_version() {
-    if [ "$SKIP_BUILD" = "1" ]; then
-        printf 'skip image build: --no-build\n'
-        return
-    fi
-    if ! command -v docker >/dev/null 2>&1; then
-        printf 'skip image build: docker not installed\n'
-        return
-    fi
-    if ! docker info >/dev/null 2>&1; then
-        printf 'skip image build: docker daemon unavailable\n'
-        return
-    fi
-
-    local tag="clawd-test-$$:latest"
-    if ! CLAWD_IMAGE="$tag" "$CLAWD" build >/dev/null 2>&1; then
-        nope "image: builds" "build failed"
-        return
-    fi
-    ok "image: builds"
-
-    local version_out
-    if ! version_out=$(CLAWD_IMAGE="$tag" "$CLAWD" version 2>&1); then
-        nope "image: claude runs" "version command failed"
-    elif ! printf '%s' "$version_out" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+ \(Claude Code\)"; then
-        nope "image: claude runs" "unexpected output: $version_out"
-    else
-        ok "image: claude runs"
-    fi
-
-    docker rmi "$tag" >/dev/null 2>&1 || true
-}
-
 test_syntax
 test_shellcheck
 test_help_output
-test_help_without_docker
-test_installer_sandbox
+test_absent_bwrap
+test_sandbox_write_allowed
+test_sandbox_write_blocked
+test_sandbox_ssh_readonly
+test_env_filtering
+test_env_passthrough
+test_allow_write
+test_doctor
 test_completion_sourceable
-test_image_build_and_version
+test_installer_sandbox
 
 echo
 printf 'summary: %d passed, %d failed\n' "$pass" "$fail"
