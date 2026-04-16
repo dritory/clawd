@@ -33,14 +33,14 @@ Anything not a reserved subcommand (`yolo`, `shell`, `doctor`, `version`,
 
 clawd wraps claude in a bubblewrap sandbox:
 
-- **`/` is read-only.** Can't modify system files, `/etc`, `/usr`, other
-  projects.
-- **`$HOME` is writable.** Dev tools work normally: pip, npm, cargo,
-  compilers, build systems.
-- **`~/.ssh` and `~/.gnupg` are read-only.** Keys can be read (git
-  pull works) but not modified or exfiltrated via write.
-- **`~/.claude/.credentials.json` is read-only.** Auth token can't be
-  overwritten.
+- **`/` is read-only.** Can't modify system files, `/etc`, `/usr`,
+  `~/.bashrc`, other projects, or anything outside the whitelist.
+- **`$PWD` is writable.** The project you're working in.
+- **Dev tool dirs are writable.** `~/.cache`, `~/.local`, `~/.config`,
+  `~/.npm`, `~/.cargo`, `~/.rustup`, `~/.claude`. Pip, npm, cargo,
+  compilers, build systems all work.
+- **`~/.ssh`, `~/.gnupg`, `~/.claude/.credentials.json` are read-only.**
+  Keys and auth tokens can be read (git pull works) but not modified.
 - **`/tmp` and `/var/tmp` are tmpfs.** Isolated per session.
 - **Process namespace is isolated.** Claude can't see or signal host
   processes.

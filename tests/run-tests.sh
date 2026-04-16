@@ -59,20 +59,44 @@ test_absent_bwrap() {
     rm -rf "$stub"
 }
 
-test_sandbox_write_allowed() {
+test_sandbox_write_project() {
     if ! command -v bwrap >/dev/null 2>&1; then
         printf 'skip sandbox tests: bwrap not installed\n'
         return
     fi
-    local testdir
-    testdir=$(mktemp -d -p "$HOME")
-    "$CLAWD" shell -c "echo ok > $testdir/test.txt" 2>/dev/null
-    if [ -f "$testdir/test.txt" ] && grep -q ok "$testdir/test.txt"; then
-        ok "sandbox: write to \$HOME allowed"
+    local testfile="$PWD/clawd-test-$$"
+    "$CLAWD" shell -c "echo ok > $testfile" 2>/dev/null
+    if [ -f "$testfile" ] && grep -q ok "$testfile"; then
+        ok "sandbox: write to \$PWD allowed"
     else
-        nope "sandbox: write to \$HOME allowed" "file not created or wrong content"
+        nope "sandbox: write to \$PWD allowed" "file not created"
     fi
-    rm -rf "$testdir"
+    rm -f "$testfile"
+}
+
+test_sandbox_home_blocked() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    local out
+    out=$("$CLAWD" shell -c "touch $HOME/clawd-escape-test 2>&1" 2>/dev/null || true)
+    if printf '%s' "$out" | grep -qi "read-only"; then
+        ok "sandbox: write to \$HOME root blocked"
+    else
+        nope "sandbox: write to \$HOME root blocked" "got: $out"
+    fi
+    rm -f "$HOME/clawd-escape-test" 2>/dev/null || true
+}
+
+test_sandbox_cache_writable() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    mkdir -p "$HOME/.cache"
+    local testfile="$HOME/.cache/clawd-test-$$"
+    "$CLAWD" shell -c "echo ok > $testfile" 2>/dev/null
+    if [ -f "$testfile" ]; then
+        ok "sandbox: write to ~/.cache allowed"
+    else
+        nope "sandbox: write to ~/.cache allowed" "file not created"
+    fi
+    rm -f "$testfile"
 }
 
 test_sandbox_write_blocked() {
@@ -200,7 +224,9 @@ test_syntax
 test_shellcheck
 test_help_output
 test_absent_bwrap
-test_sandbox_write_allowed
+test_sandbox_write_project
+test_sandbox_home_blocked
+test_sandbox_cache_writable
 test_sandbox_write_blocked
 test_sandbox_ssh_readonly
 test_env_filtering

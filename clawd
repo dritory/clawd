@@ -15,15 +15,30 @@ run_sandboxed() {
         --tmpfs /tmp
         --tmpfs /var/tmp
         --unshare-pid
-        --bind "$HOME" "$HOME"
     )
 
-    # Protect sensitive dotfiles (read-only within writable $HOME).
+    # Writable: project dir + dev tool paths. Everything else in $HOME
+    # stays read-only (other projects, dotfiles, shell rc, etc.).
+    bwrap_args+=(--bind "$PWD" "$PWD")
+    for p in \
+        "$HOME/.claude" \
+        "$HOME/.cache" \
+        "$HOME/.local" \
+        "$HOME/.config" \
+        "$HOME/.npm" \
+        "$HOME/.cargo" \
+        "$HOME/.rustup" \
+    ; do
+        [ -e "$p" ] && bwrap_args+=(--bind "$p" "$p")
+    done
+    [ -e "$HOME/.claude.json" ] && bwrap_args+=(--bind "$HOME/.claude.json" "$HOME/.claude.json")
+
+    # Within the writable dirs, protect credentials.
+    local creds="$HOME/.claude/.credentials.json"
+    [ -f "$creds" ] && bwrap_args+=(--ro-bind "$creds" "$creds")
     for p in "$HOME/.ssh" "$HOME/.gnupg"; do
         [ -d "$p" ] && bwrap_args+=(--ro-bind "$p" "$p")
     done
-    local creds="$HOME/.claude/.credentials.json"
-    [ -f "$creds" ] && bwrap_args+=(--ro-bind "$creds" "$creds")
 
     # Extra writable paths.
     if [ -n "${CLAWD_ALLOW_WRITE:-}" ]; then
