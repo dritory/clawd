@@ -3,9 +3,9 @@
 [![CI](https://github.com/dritory/clawd/actions/workflows/ci.yml/badge.svg)](https://github.com/dritory/clawd/actions/workflows/ci.yml)
 
 Sandboxed [Claude Code](https://code.claude.com) using
-[bubblewrap](https://github.com/containers/bubblewrap). Your system
-stays read-only, `$HOME` is writable so dev tools work, and `clawd yolo`
-skips all permission prompts.
+[bubblewrap](https://github.com/containers/bubblewrap). The filesystem
+is read-only except your project dir and a whitelist of dev tool paths.
+`clawd yolo` skips all permission prompts.
 
 ## Install
 
