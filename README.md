@@ -1,8 +1,11 @@
 # clawd
 
-Sandboxed Claude Code using bubblewrap. Your system stays read-only,
-`$HOME` is writable so dev tools work, and `clawd yolo` skips all
-permission prompts.
+[![CI](https://github.com/dritory/clawd/actions/workflows/ci.yml/badge.svg)](https://github.com/dritory/clawd/actions/workflows/ci.yml)
+
+Sandboxed [Claude Code](https://code.claude.com) using
+[bubblewrap](https://github.com/containers/bubblewrap). Your system
+stays read-only, `$HOME` is writable so dev tools work, and `clawd yolo`
+skips all permission prompts.
 
 ## Install
 
@@ -69,6 +72,20 @@ CLAWD_ENV=AWS_PROFILE,GITHUB_TOKEN
 
 Precedence: env var > project `.clawd` > global config.
 
+## Contributing
+
+```
+git clone git@github.com:dritory/clawd.git
+cd clawd
+tests/run-tests.sh            # needs bwrap + shellcheck
+CLAWD_INSTALL_LOCAL=./clawd sh install.sh
+```
+
+The test suite covers sandbox isolation (write permissions, symlink
+escapes, PID namespace, credential protection, env var filtering),
+the installer, and shell completion.
+
 ## License
 
-MIT or Apache 2.0.
+Dual-licensed under [MIT](LICENSE-MIT.md) or
+[Apache 2.0](LICENSE-APACHE.md), at your option.
