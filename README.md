@@ -52,16 +52,21 @@ Same OS, same tools, same glibc, same plugins. No Docker, no image.
 
 ## Configuration
 
-Drop a `.clawd` file in your project root:
+Per-project (`.clawd` in project root, walks up like `.gitignore`):
 
 ```
 # .clawd
 CLAWD_ALLOW_WRITE=/data:/mnt/shared
-CLAWD_ENV=GITHUB_TOKEN,AWS_PROFILE
+CLAWD_ENV=GITHUB_TOKEN
 ```
 
-clawd walks up from `$PWD` to find it (like `.gitignore`). Env vars
-override the file. Both keys are optional.
+Global defaults (`~/.config/clawd/config`, same format):
+
+```
+CLAWD_ENV=AWS_PROFILE,GITHUB_TOKEN
+```
+
+Precedence: env var > project `.clawd` > global config.
 
 ## License
 
