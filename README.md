@@ -50,12 +50,18 @@ clawd wraps claude in a bubblewrap sandbox:
 
 Same OS, same tools, same glibc, same plugins. No Docker, no image.
 
-## Environment
+## Configuration
+
+Drop a `.clawd` file in your project root:
 
 ```
-CLAWD_ENV             env vars to keep (comma-separated, e.g. "AWS_PROFILE,GITHUB_TOKEN")
-CLAWD_ALLOW_WRITE     extra writable paths (colon-separated, e.g. "/data:/mnt/shared")
+# .clawd
+CLAWD_ALLOW_WRITE=/data:/mnt/shared
+CLAWD_ENV=GITHUB_TOKEN,AWS_PROFILE
 ```
+
+clawd walks up from `$PWD` to find it (like `.gitignore`). Env vars
+override the file. Both keys are optional.
 
 ## License
 

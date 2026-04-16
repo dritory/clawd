@@ -7,6 +7,27 @@ CLAWD_VERSION="1.0.0"
 
 die() { echo "clawd: $*" >&2; exit 1; }
 
+# Load per-project config from .clawd in $PWD (or parents).
+# Same keys as the env vars: CLAWD_ENV, CLAWD_ALLOW_WRITE.
+# Env vars override the config file.
+load_config() {
+    local dir="$PWD"
+    while [ "$dir" != "/" ]; do
+        if [ -f "$dir/.clawd" ]; then
+            while IFS='=' read -r key value; do
+                key=$(echo "$key" | xargs)
+                [[ "$key" =~ ^#|^$ ]] && continue
+                value=$(echo "$value" | xargs)
+                case "$key" in
+                    CLAWD_ENV)         CLAWD_ENV="${CLAWD_ENV:-$value}" ;;
+                    CLAWD_ALLOW_WRITE) CLAWD_ALLOW_WRITE="${CLAWD_ALLOW_WRITE:-$value}" ;;
+                esac
+            done < "$dir/.clawd"
+            return
+        fi
+        dir=$(dirname "$dir")
+    done
+}
 run_sandboxed() {
     local bwrap_args=(
         --ro-bind / /
@@ -97,13 +118,15 @@ clawd $CLAWD_VERSION — sandboxed claude
   clawd version
   clawd help-clawd
 
-Env:
-  CLAWD_ENV             extra env vars to pass through (comma-separated)
+Config (.clawd file in project root, or env vars):
+  CLAWD_ENV             env vars to keep (comma-separated)
   CLAWD_ALLOW_WRITE     extra writable paths (colon-separated)
 EOF
 }
 
 command -v bwrap >/dev/null 2>&1 || die "bubblewrap not found (apt install bubblewrap)"
+
+load_config
 
 case "${1:-}" in
     yolo)       shift; run_sandboxed claude --dangerously-skip-permissions "$@" ;;

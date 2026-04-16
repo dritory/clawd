@@ -147,6 +147,21 @@ test_env_passthrough() {
     fi
 }
 
+test_config_file() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    local testdir
+    testdir=$(mktemp -d)
+    echo "CLAWD_ALLOW_WRITE=$testdir" > "$PWD/.clawd"
+    "$CLAWD" shell -c "echo ok > $testdir/test.txt" 2>/dev/null
+    rm -f "$PWD/.clawd"
+    if [ -f "$testdir/test.txt" ]; then
+        ok "config: .clawd file sets CLAWD_ALLOW_WRITE"
+    else
+        nope "config: .clawd file sets CLAWD_ALLOW_WRITE" "file not created"
+    fi
+    rm -rf "$testdir"
+}
+
 test_allow_write() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
     local testdir
@@ -231,6 +246,7 @@ test_sandbox_write_blocked
 test_sandbox_ssh_readonly
 test_env_filtering
 test_env_passthrough
+test_config_file
 test_allow_write
 test_doctor
 test_completion_sourceable
