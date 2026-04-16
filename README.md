@@ -41,7 +41,8 @@ clawd wraps claude in a bubblewrap sandbox:
   compilers, build systems all work.
 - **`~/.ssh`, `~/.gnupg`, `~/.claude/.credentials.json` are read-only.**
   Keys and auth tokens can be read (git pull works) but not modified.
-- **`/tmp` and `/var/tmp` are tmpfs.** Isolated per session.
+- **`/tmp` and `/var/tmp` are writable.** Shared with host (already
+  world-writable and ephemeral, so no security benefit to isolating).
 - **Process namespace is isolated.** Claude can't see or signal host
   processes.
 - **Sensitive env vars are stripped.** Anything matching `AWS_*`,

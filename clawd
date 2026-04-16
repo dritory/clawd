@@ -40,8 +40,8 @@ run_sandboxed() {
         --ro-bind / /
         --dev /dev
         --proc /proc
-        --tmpfs /tmp
-        --tmpfs /var/tmp
+        --bind /tmp /tmp
+        --bind /var/tmp /var/tmp
         --unshare-pid
     )
 
