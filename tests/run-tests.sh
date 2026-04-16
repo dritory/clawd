@@ -248,6 +248,71 @@ test_env_filtering
 test_env_passthrough
 test_config_file
 test_allow_write
+test_credentials_readonly() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    if [ ! -f "$HOME/.claude/.credentials.json" ]; then
+        printf 'skip credentials: no .credentials.json\n'
+        return
+    fi
+    local out
+    out=$("$CLAWD" shell -c "echo bad > $HOME/.claude/.credentials.json" 2>&1 || true)
+    if printf '%s' "$out" | grep -qi "read-only\|permission denied"; then
+        ok "sandbox: .credentials.json is read-only"
+    else
+        nope "sandbox: .credentials.json is read-only" "got: $out"
+    fi
+}
+
+test_symlink_escape() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    # Try to escape via symlink: create a symlink in $PWD pointing to
+    # a read-only path, then write through it.
+    local link="$PWD/clawd-symlink-test-$$"
+    local out
+    out=$("$CLAWD" shell -c "ln -sf /etc/hostname $link && echo pwned > $link 2>&1" 2>/dev/null || true)
+    if printf '%s' "$out" | grep -qi "read-only\|permission denied"; then
+        ok "sandbox: symlink escape blocked"
+    else
+        # Also OK if the write just silently failed
+        if [ ! -f /etc/hostname ] || ! grep -q pwned /etc/hostname 2>/dev/null; then
+            ok "sandbox: symlink escape blocked"
+        else
+            nope "sandbox: symlink escape blocked" "wrote through symlink!"
+        fi
+    fi
+    rm -f "$link" 2>/dev/null || true
+}
+
+test_pid_isolation() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    # Inside the sandbox, PID 1 should be our process, not the host init.
+    # And we shouldn't see host processes.
+    local count
+    count=$("$CLAWD" shell -c "ls /proc | grep -c '^[0-9]'" 2>/dev/null)
+    # A fully isolated PID namespace has very few processes (< 10).
+    # Host typically has hundreds.
+    if [ "$count" -lt 20 ]; then
+        ok "sandbox: PID namespace isolated ($count pids)"
+    else
+        nope "sandbox: PID namespace isolated" "saw $count pids (expected < 20)"
+    fi
+}
+
+test_host_tools() {
+    if ! command -v bwrap >/dev/null 2>&1; then return; fi
+    local missing=()
+    for tool in git python3 bash; do
+        if ! "$CLAWD" shell -c "command -v $tool" >/dev/null 2>&1; then
+            missing+=("$tool")
+        fi
+    done
+    if [ "${#missing[@]}" -eq 0 ]; then
+        ok "sandbox: host tools accessible"
+    else
+        nope "sandbox: host tools accessible" "missing: ${missing[*]}"
+    fi
+}
+
 test_claude_starts() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
     if ! command -v claude >/dev/null 2>&1; then
@@ -263,6 +328,10 @@ test_claude_starts() {
     fi
 }
 
+test_credentials_readonly
+test_symlink_escape
+test_pid_isolation
+test_host_tools
 test_doctor
 test_claude_starts
 test_completion_sourceable
