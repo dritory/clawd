@@ -250,21 +250,6 @@ test_env_filtering
 test_env_passthrough
 test_config_file
 test_allow_write
-test_credentials_readonly() {
-    if ! command -v bwrap >/dev/null 2>&1; then return; fi
-    if [ ! -f "$HOME/.claude/.credentials.json" ]; then
-        printf 'skip credentials: no .credentials.json\n'
-        return
-    fi
-    local out
-    out=$("$CLAWD" shell -c "echo bad > $HOME/.claude/.credentials.json" 2>&1 || true)
-    if printf '%s' "$out" | grep -qi "read-only\|permission denied"; then
-        ok "sandbox: .credentials.json is read-only"
-    else
-        nope "sandbox: .credentials.json is read-only" "got: $out"
-    fi
-}
-
 test_symlink_escape() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
     # Try to escape via symlink: create a symlink in $PWD pointing to
@@ -330,7 +315,6 @@ test_claude_starts() {
     fi
 }
 
-test_credentials_readonly
 test_symlink_escape
 test_pid_isolation
 test_host_tools

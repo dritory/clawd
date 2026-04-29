@@ -51,11 +51,11 @@ run_sandboxed() {
     [ "$PWD" = "$HOME" ] || bwrap_args+=(--bind "$PWD" "$PWD")
 
     # Lock down sensitive paths within writable $HOME.
+    # NOTE: ~/.claude/.credentials.json is NOT read-only because claude
+    # needs to write refreshed OAuth tokens back to it.
     for p in "$HOME/.ssh" "$HOME/.gnupg"; do
         [ -d "$p" ] && bwrap_args+=(--ro-bind "$p" "$p")
     done
-    local creds="$HOME/.claude/.credentials.json"
-    [ -f "$creds" ] && bwrap_args+=(--ro-bind "$creds" "$creds")
     for p in "$HOME/.bashrc" "$HOME/.bash_history" "$HOME/.profile" "$HOME/.zshrc"; do
         [ -f "$p" ] && bwrap_args+=(--ro-bind "$p" "$p")
     done

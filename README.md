@@ -41,9 +41,8 @@ clawd wraps claude in a bubblewrap sandbox:
   own config all work without hitting walls.
 - **`$PWD` is writable.** The project you're working in.
 - **Sensitive dotfiles are read-only.** `~/.ssh`, `~/.gnupg`,
-  `~/.claude/.credentials.json`, `~/.bashrc`, `~/.profile`, `~/.zshrc`,
-  `~/.bash_history`. Keys, auth tokens, and shell rc can be read but
-  not modified.
+  `~/.bashrc`, `~/.profile`, `~/.zshrc`, `~/.bash_history`. Keys and
+  shell rc can be read but not modified.
 - **`/tmp` and `/var/tmp` are writable.** Shared with host (already
   world-writable and ephemeral, so no security benefit to isolating).
 - **Process namespace is isolated.** Claude can't see or signal host
