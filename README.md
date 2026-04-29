@@ -84,6 +84,20 @@ The test suite covers sandbox isolation (write permissions, symlink
 escapes, PID namespace, credential protection, env var filtering),
 the installer, and shell completion.
 
+## Disclaimer
+
+clawd makes a dangerous tool slightly less dangerous. It does not make
+it safe. `clawd yolo` lets Claude Code run any command without asking,
+and the sandbox doesn't restrict network access, doesn't isolate
+`$HOME`, and can't stop a sufficiently determined model from doing
+something destructive within those bounds (`rm -rf` your project,
+exfiltrate via the network, push to git, etc.).
+
+Use at your own risk. The authors make no warranty and accept no
+liability for damage to your files, data, infrastructure, or
+relationships. Read the [LICENSE](LICENSE-MIT.md) for the legal
+version of this paragraph.
+
 ## License
 
 Dual-licensed under [MIT](LICENSE-MIT.md) or
