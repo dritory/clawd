@@ -14,5 +14,8 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y shellcheck bubblewrap
 
+      - name: Allow unprivileged user namespaces (Ubuntu 24.04 AppArmor)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Run tests
         run: tests/run-tests.sh
