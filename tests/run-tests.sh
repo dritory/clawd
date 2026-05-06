@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for clawd.
+# Tests for krab.
 #   tests/run-tests.sh
 # Exit code is the number of failures.
 
@@ -7,7 +7,7 @@ set -uo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
-CLAWD="$REPO/clawd"
+KRAB="$REPO/krab"
 INSTALL="$REPO/install.sh"
 
 pass=0
@@ -16,7 +16,7 @@ ok()   { printf 'ok   %s\n' "$1"; pass=$((pass+1)); }
 nope() { printf 'FAIL %s: %s\n' "$1" "$2" >&2; fail=$((fail+1)); }
 
 test_syntax() {
-    bash -n "$CLAWD" 2>/dev/null && ok "clawd: bash syntax" || nope "clawd: bash syntax" "bash -n failed"
+    bash -n "$KRAB" 2>/dev/null && ok "krab: bash syntax" || nope "krab: bash syntax" "bash -n failed"
     sh -n "$INSTALL" 2>/dev/null && ok "install.sh: sh syntax" || nope "install.sh: sh syntax" "sh -n failed"
 }
 
@@ -25,21 +25,21 @@ test_shellcheck() {
         printf 'skip shellcheck: not installed\n'
         return
     fi
-    shellcheck -S warning "$CLAWD" >/dev/null && ok "clawd: shellcheck" || nope "clawd: shellcheck" "see shellcheck $CLAWD"
+    shellcheck -S warning "$KRAB" >/dev/null && ok "krab: shellcheck" || nope "krab: shellcheck" "see shellcheck $KRAB"
     shellcheck -S warning "$INSTALL" >/dev/null && ok "install.sh: shellcheck" || nope "install.sh: shellcheck" "see shellcheck $INSTALL"
 }
 
 test_help_output() {
     local out
-    out=$("$CLAWD" help-clawd 2>&1) || true
+    out=$("$KRAB" help-krab 2>&1) || true
     local missing=()
     for want in "yolo" "shell" "doctor" "version"; do
         printf '%s' "$out" | grep -q "$want" || missing+=("$want")
     done
     if [ "${#missing[@]}" -eq 0 ]; then
-        ok "help-clawd lists subcommands"
+        ok "help-krab lists subcommands"
     else
-        nope "help-clawd lists subcommands" "missing: ${missing[*]}"
+        nope "help-krab lists subcommands" "missing: ${missing[*]}"
     fi
 }
 
@@ -50,7 +50,7 @@ test_absent_bwrap() {
         if src=$(command -v "$t"); then ln -sf "$src" "$stub/$t"; fi
     done
     local out
-    out=$(env -i PATH="$stub" HOME="$HOME" "$CLAWD" version 2>&1 || true)
+    out=$(env -i PATH="$stub" HOME="$HOME" "$KRAB" version 2>&1 || true)
     if printf '%s' "$out" | grep -q "bubblewrap not found"; then
         ok "absent bwrap: clean error"
     else
@@ -64,8 +64,8 @@ test_sandbox_write_project() {
         printf 'skip sandbox tests: bwrap not installed\n'
         return
     fi
-    local testfile="$PWD/clawd-test-$$"
-    "$CLAWD" shell -c "echo ok > $testfile" 2>/dev/null
+    local testfile="$PWD/krab-test-$$"
+    "$KRAB" shell -c "echo ok > $testfile" 2>/dev/null
     if [ -f "$testfile" ] && grep -q ok "$testfile"; then
         ok "sandbox: write to \$PWD allowed"
     else
@@ -76,8 +76,8 @@ test_sandbox_write_project() {
 
 test_sandbox_home_writable() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
-    local testfile="$HOME/clawd-test-$$"
-    "$CLAWD" shell -c "echo ok > $testfile" 2>/dev/null
+    local testfile="$HOME/krab-test-$$"
+    "$KRAB" shell -c "echo ok > $testfile" 2>/dev/null
     if [ -f "$testfile" ]; then
         ok "sandbox: write to \$HOME allowed"
     else
@@ -93,7 +93,7 @@ test_sandbox_bashrc_protected() {
         return
     fi
     local out
-    out=$("$CLAWD" shell -c "echo bad >> $HOME/.bashrc" 2>&1 || true)
+    out=$("$KRAB" shell -c "echo bad >> $HOME/.bashrc" 2>&1 || true)
     if printf '%s' "$out" | grep -qi "read-only\|permission denied"; then
         ok "sandbox: ~/.bashrc is read-only"
     else
@@ -104,7 +104,7 @@ test_sandbox_bashrc_protected() {
 test_sandbox_write_blocked() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
     local out
-    out=$("$CLAWD" shell -c "touch /etc/clawd-test 2>&1" 2>/dev/null || true)
+    out=$("$KRAB" shell -c "touch /etc/krab-test 2>&1" 2>/dev/null || true)
     if printf '%s' "$out" | grep -qi "read-only"; then
         ok "sandbox: write to /etc blocked"
     else
@@ -119,7 +119,7 @@ test_sandbox_ssh_readonly() {
         return
     fi
     local out
-    out=$("$CLAWD" shell -c "touch $HOME/.ssh/clawd-test 2>&1" 2>/dev/null || true)
+    out=$("$KRAB" shell -c "touch $HOME/.ssh/krab-test 2>&1" 2>/dev/null || true)
     if printf '%s' "$out" | grep -qi "read-only"; then
         ok "sandbox: ~/.ssh is read-only"
     else
@@ -130,7 +130,7 @@ test_sandbox_ssh_readonly() {
 test_env_filtering() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
     local out
-    out=$(AWS_SECRET_ACCESS_KEY=leaked "$CLAWD" shell -c 'echo "${AWS_SECRET_ACCESS_KEY:-stripped}"' 2>/dev/null)
+    out=$(AWS_SECRET_ACCESS_KEY=leaked "$KRAB" shell -c 'echo "${AWS_SECRET_ACCESS_KEY:-stripped}"' 2>/dev/null)
     if [ "$out" = "stripped" ]; then
         ok "env: sensitive var stripped"
     else
@@ -141,11 +141,11 @@ test_env_filtering() {
 test_env_passthrough() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
     local out
-    out=$(AWS_SECRET_ACCESS_KEY=kept CLAWD_ENV=AWS_SECRET_ACCESS_KEY "$CLAWD" shell -c 'echo "$AWS_SECRET_ACCESS_KEY"' 2>/dev/null)
+    out=$(AWS_SECRET_ACCESS_KEY=kept KRAB_ENV=AWS_SECRET_ACCESS_KEY "$KRAB" shell -c 'echo "$AWS_SECRET_ACCESS_KEY"' 2>/dev/null)
     if [ "$out" = "kept" ]; then
-        ok "env: CLAWD_ENV passthrough"
+        ok "env: KRAB_ENV passthrough"
     else
-        nope "env: CLAWD_ENV passthrough" "got: $out"
+        nope "env: KRAB_ENV passthrough" "got: $out"
     fi
 }
 
@@ -153,13 +153,13 @@ test_config_file() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
     local testdir
     testdir=$(mktemp -d)
-    echo "CLAWD_ALLOW_WRITE=$testdir" > "$PWD/.clawd"
-    "$CLAWD" shell -c "echo ok > $testdir/test.txt" 2>/dev/null
-    rm -f "$PWD/.clawd"
+    echo "KRAB_ALLOW_WRITE=$testdir" > "$PWD/.krab"
+    "$KRAB" shell -c "echo ok > $testdir/test.txt" 2>/dev/null
+    rm -f "$PWD/.krab"
     if [ -f "$testdir/test.txt" ]; then
-        ok "config: .clawd file sets CLAWD_ALLOW_WRITE"
+        ok "config: .krab file sets KRAB_ALLOW_WRITE"
     else
-        nope "config: .clawd file sets CLAWD_ALLOW_WRITE" "file not created"
+        nope "config: .krab file sets KRAB_ALLOW_WRITE" "file not created"
     fi
     rm -rf "$testdir"
 }
@@ -168,29 +168,29 @@ test_allow_write() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
     local testdir
     testdir=$(mktemp -d -p /tmp)
-    CLAWD_ALLOW_WRITE="$testdir" "$CLAWD" shell -c "echo ok > $testdir/test.txt" 2>/dev/null
+    KRAB_ALLOW_WRITE="$testdir" "$KRAB" shell -c "echo ok > $testdir/test.txt" 2>/dev/null
     if [ -f "$testdir/test.txt" ]; then
-        ok "env: CLAWD_ALLOW_WRITE works"
+        ok "env: KRAB_ALLOW_WRITE works"
     else
-        nope "env: CLAWD_ALLOW_WRITE works" "file not created"
+        nope "env: KRAB_ALLOW_WRITE works" "file not created"
     fi
     rm -rf "$testdir"
 }
 
 test_doctor() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
-    if "$CLAWD" doctor >/dev/null 2>&1; then
-        ok "clawd doctor"
+    if "$KRAB" doctor >/dev/null 2>&1; then
+        ok "krab doctor"
     else
-        nope "clawd doctor" "exited non-zero"
+        nope "krab doctor" "exited non-zero"
     fi
 }
 
 test_completion_sourceable() {
-    if bash -c "source '$REPO/completions/clawd.bash' && complete -p clawd" >/dev/null 2>&1; then
+    if bash -c "source '$REPO/completions/krab.bash' && complete -p krab" >/dev/null 2>&1; then
         ok "completion: sources cleanly"
     else
-        nope "completion: sources cleanly" "bash source + complete -p clawd failed"
+        nope "completion: sources cleanly" "bash source + complete -p krab failed"
     fi
 }
 
@@ -203,21 +203,21 @@ test_installer_sandbox() {
     done
     touch "$testhome/.bashrc"
 
-    local runner="env -i HOME=$testhome PATH=$testbin SHELL=/bin/sh CLAWD_INSTALL_LOCAL=$CLAWD sh $INSTALL"
+    local runner="env -i HOME=$testhome PATH=$testbin SHELL=/bin/sh KRAB_INSTALL_LOCAL=$KRAB sh $INSTALL"
 
     if ! $runner >/dev/null 2>&1; then
         nope "installer: first run" "exit non-zero"
         rm -rf "$testhome" "$testbin"
         return
     fi
-    if ! [ -x "$testhome/.local/bin/clawd" ]; then
+    if ! [ -x "$testhome/.local/bin/krab" ]; then
         nope "installer: first run" "binary not placed"
         rm -rf "$testhome" "$testbin"
         return
     fi
     ok "installer: first run"
 
-    if [ -r "$testhome/.local/share/bash-completion/completions/clawd" ]; then
+    if [ -r "$testhome/.local/share/bash-completion/completions/krab" ]; then
         ok "installer: completion placed"
     else
         nope "installer: completion placed" "not found"
@@ -225,7 +225,7 @@ test_installer_sandbox() {
 
     $runner >/dev/null 2>&1
     local marker_count
-    marker_count=$(grep -c "# Added by clawd installer" "$testhome/.bashrc")
+    marker_count=$(grep -c "# Added by krab installer" "$testhome/.bashrc")
     if [ "$marker_count" -ne 1 ]; then
         nope "installer: idempotent" "marker count=$marker_count"
     elif [ -f "$testhome/.profile" ]; then
@@ -254,9 +254,9 @@ test_symlink_escape() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
     # Try to escape via symlink: create a symlink in $PWD pointing to
     # a read-only path, then write through it.
-    local link="$PWD/clawd-symlink-test-$$"
+    local link="$PWD/krab-symlink-test-$$"
     local out
-    out=$("$CLAWD" shell -c "ln -sf /etc/hostname $link && echo pwned > $link 2>&1" 2>/dev/null || true)
+    out=$("$KRAB" shell -c "ln -sf /etc/hostname $link && echo pwned > $link 2>&1" 2>/dev/null || true)
     if printf '%s' "$out" | grep -qi "read-only\|permission denied"; then
         ok "sandbox: symlink escape blocked"
     else
@@ -275,7 +275,7 @@ test_pid_isolation() {
     # Inside the sandbox, PID 1 should be our process, not the host init.
     # And we shouldn't see host processes.
     local count
-    count=$("$CLAWD" shell -c "ls /proc | grep -c '^[0-9]'" 2>/dev/null)
+    count=$("$KRAB" shell -c "ls /proc | grep -c '^[0-9]'" 2>/dev/null)
     # A fully isolated PID namespace has very few processes (< 10).
     # Host typically has hundreds.
     if [ "$count" -lt 20 ]; then
@@ -289,7 +289,7 @@ test_host_tools() {
     if ! command -v bwrap >/dev/null 2>&1; then return; fi
     local missing=()
     for tool in git python3 bash; do
-        if ! "$CLAWD" shell -c "command -v $tool" >/dev/null 2>&1; then
+        if ! "$KRAB" shell -c "command -v $tool" >/dev/null 2>&1; then
             missing+=("$tool")
         fi
     done
@@ -307,7 +307,7 @@ test_claude_starts() {
         return
     fi
     local out
-    out=$("$CLAWD" -- --version 2>&1)
+    out=$("$KRAB" -- --version 2>&1)
     if printf '%s' "$out" | grep -q "Claude Code"; then
         ok "sandbox: claude starts"
     else

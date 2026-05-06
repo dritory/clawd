@@ -1,40 +1,40 @@
-# clawd
+# krab
 
-[![CI](https://github.com/dritory/clawd/actions/workflows/ci.yml/badge.svg)](https://github.com/dritory/clawd/actions/workflows/ci.yml)
+[![CI](https://github.com/dritory/krab/actions/workflows/ci.yml/badge.svg)](https://github.com/dritory/krab/actions/workflows/ci.yml)
 
 Sandboxed [Claude Code](https://code.claude.com) using
 [bubblewrap](https://github.com/containers/bubblewrap). The system
 is read-only, `$HOME` is writable but sensitive dotfiles are protected.
-`clawd yolo` skips all permission prompts.
+`krab yolo` skips all permission prompts.
 
 ## Install
 
 ```
 sudo apt install bubblewrap       # or pacman -S bubblewrap, dnf install bubblewrap
-curl -fsSL https://raw.githubusercontent.com/dritory/clawd/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dritory/krab/main/install.sh | sh
 ```
 
 From a checkout:
 
 ```
-CLAWD_INSTALL_LOCAL=./clawd sh install.sh
+KRAB_INSTALL_LOCAL=./krab sh install.sh
 ```
 
 ## Usage
 
 ```
-clawd                # claude with filesystem sandbox
-clawd yolo           # sandbox + skip all permission prompts
-clawd shell          # sandboxed bash (for debugging)
-clawd doctor         # check bwrap and claude work
+krab                # claude with filesystem sandbox
+krab yolo           # sandbox + skip all permission prompts
+krab shell          # sandboxed bash (for debugging)
+krab doctor         # check bwrap and claude work
 ```
 
 Anything not a reserved subcommand (`yolo`, `shell`, `doctor`, `version`,
-`help-clawd`) is forwarded to `claude`. Use `clawd -- args` to escape.
+`help-krab`) is forwarded to `claude`. Use `krab -- args` to escape.
 
 ## How it works
 
-clawd wraps claude in a bubblewrap sandbox:
+krab wraps claude in a bubblewrap sandbox:
 
 - **`/` is read-only.** Can't modify system files, `/etc`, `/usr`.
 - **`$HOME` is writable.** Dev tools, package managers, and claude's
@@ -55,29 +55,29 @@ Same OS, same tools, same glibc, same plugins. No Docker, no image.
 
 ## Configuration
 
-Per-project (`.clawd` in project root, walks up like `.gitignore`):
+Per-project (`.krab` in project root, walks up like `.gitignore`):
 
 ```
-# .clawd
-CLAWD_ALLOW_WRITE=/data:/mnt/shared
-CLAWD_ENV=GITHUB_TOKEN
+# .krab
+KRAB_ALLOW_WRITE=/data:/mnt/shared
+KRAB_ENV=GITHUB_TOKEN
 ```
 
-Global defaults (`~/.config/clawd/config`, same format):
+Global defaults (`~/.config/krab/config`, same format):
 
 ```
-CLAWD_ENV=AWS_PROFILE,GITHUB_TOKEN
+KRAB_ENV=AWS_PROFILE,GITHUB_TOKEN
 ```
 
-Precedence: env var > project `.clawd` > global config.
+Precedence: env var > project `.krab` > global config.
 
 ## Contributing
 
 ```
-git clone git@github.com:dritory/clawd.git
-cd clawd
+git clone git@github.com:dritory/krab.git
+cd krab
 tests/run-tests.sh            # needs bwrap + shellcheck
-CLAWD_INSTALL_LOCAL=./clawd sh install.sh
+KRAB_INSTALL_LOCAL=./krab sh install.sh
 ```
 
 The test suite covers sandbox isolation (write permissions, symlink
@@ -86,8 +86,8 @@ the installer, and shell completion.
 
 ## Disclaimer
 
-clawd makes a dangerous tool slightly less dangerous. It does not make
-it safe. `clawd yolo` lets Claude Code run any command without asking,
+krab makes a dangerous tool slightly less dangerous. It does not make
+it safe. `krab yolo` lets Claude Code run any command without asking,
 and the sandbox doesn't restrict network access, doesn't isolate
 `$HOME`, and can't stop a sufficiently determined model from doing
 something destructive within those bounds (`rm -rf` your project,

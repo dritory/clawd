@@ -1,6 +1,6 @@
-# bash completion for clawd's reserved subcommands.
+# bash completion for krab's reserved subcommands.
 
-_clawd() {
+_krab() {
     local cur prev words cword
     _init_completion 2>/dev/null || {
         COMPREPLY=()
@@ -9,7 +9,7 @@ _clawd() {
     }
 
     if [ "${cword:-$COMP_CWORD}" -eq 1 ]; then
-        local subs="yolo shell doctor version help-clawd"
+        local subs="yolo shell doctor version help-krab"
         # shellcheck disable=SC2207
         COMPREPLY=( $(compgen -W "$subs" -- "$cur") )
         return 0
@@ -19,4 +19,4 @@ _clawd() {
     return 0
 }
 
-complete -F _clawd clawd
+complete -F _krab krab

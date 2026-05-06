@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# clawd: sandboxed claude using bubblewrap.
-# https://github.com/dritory/clawd
+# krab: sandboxed claude using bubblewrap.
+# https://github.com/dritory/krab
 set -euo pipefail
 
-CLAWD_VERSION="1.0.0"
+KRAB_VERSION="1.0.0"
 
-die() { echo "clawd: $*" >&2; exit 1; }
+die() { echo "krab: $*" >&2; exit 1; }
 
-# Load config. Precedence: env var > project .clawd > ~/.config/clawd/config.
+# Load config. Precedence: env var > project .krab > ~/.config/krab/config.
 load_config_file() {
     [ -f "$1" ] || return 0
     while IFS='=' read -r key value; do
@@ -15,21 +15,21 @@ load_config_file() {
         [[ "$key" =~ ^#|^$ ]] && continue
         value=$(echo "$value" | xargs)
         case "$key" in
-            CLAWD_ENV)         CLAWD_ENV="${CLAWD_ENV:-$value}" ;;
-            CLAWD_ALLOW_WRITE) CLAWD_ALLOW_WRITE="${CLAWD_ALLOW_WRITE:-$value}" ;;
+            KRAB_ENV)         KRAB_ENV="${KRAB_ENV:-$value}" ;;
+            KRAB_ALLOW_WRITE) KRAB_ALLOW_WRITE="${KRAB_ALLOW_WRITE:-$value}" ;;
         esac
     done < "$1"
 }
 
 load_config() {
     # Global defaults first (lowest priority).
-    load_config_file "${XDG_CONFIG_HOME:-$HOME/.config}/clawd/config"
+    load_config_file "${XDG_CONFIG_HOME:-$HOME/.config}/krab/config"
 
     # Project config overrides global (walk up from $PWD).
     local dir="$PWD"
     while [ "$dir" != "/" ]; do
-        if [ -f "$dir/.clawd" ]; then
-            load_config_file "$dir/.clawd"
+        if [ -f "$dir/.krab" ]; then
+            load_config_file "$dir/.krab"
             return
         fi
         dir=$(dirname "$dir")
@@ -61,8 +61,8 @@ run_sandboxed() {
     done
 
     # Extra writable paths.
-    if [ -n "${CLAWD_ALLOW_WRITE:-}" ]; then
-        IFS=':' read -ra extra <<< "$CLAWD_ALLOW_WRITE"
+    if [ -n "${KRAB_ALLOW_WRITE:-}" ]; then
+        IFS=':' read -ra extra <<< "$KRAB_ALLOW_WRITE"
         for p in "${extra[@]}"; do
             [ -e "$p" ] && bwrap_args+=(--bind "$p" "$p")
         done
@@ -70,7 +70,7 @@ run_sandboxed() {
 
     # Strip env vars matching these patterns unless explicitly allowed.
     local deny='(^AWS_|_SECRET|_TOKEN|_KEY|_PASSWORD|_CREDENTIAL)'
-    local allow_csv="${CLAWD_ENV:-}"
+    local allow_csv="${KRAB_ENV:-}"
     while IFS='=' read -r name _; do
         if [[ "$name" =~ $deny ]]; then
             local keep=0
@@ -84,7 +84,7 @@ run_sandboxed() {
         fi
     done < <(env)
 
-    bwrap_args+=(--setenv CLAWD 1 --chdir "$PWD" --)
+    bwrap_args+=(--setenv KRAB 1 --chdir "$PWD" --)
 
     exec bwrap "${bwrap_args[@]}" "$@"
 }
@@ -108,18 +108,18 @@ doctor() {
 
 usage() {
     cat <<EOF
-clawd $CLAWD_VERSION — sandboxed claude
+krab $KRAB_VERSION — sandboxed claude
 
-  clawd [args]        claude with filesystem sandbox
-  clawd yolo [args]   sandbox + skip all permission prompts
-  clawd shell         sandboxed bash (for debugging)
-  clawd doctor        check bwrap and claude work
-  clawd version
-  clawd help-clawd
+  krab [args]        claude with filesystem sandbox
+  krab yolo [args]   sandbox + skip all permission prompts
+  krab shell         sandboxed bash (for debugging)
+  krab doctor        check bwrap and claude work
+  krab version
+  krab help-krab
 
-Config (.clawd file in project root, or env vars):
-  CLAWD_ENV             env vars to keep (comma-separated)
-  CLAWD_ALLOW_WRITE     extra writable paths (colon-separated)
+Config (.krab file in project root, or env vars):
+  KRAB_ENV             env vars to keep (comma-separated)
+  KRAB_ALLOW_WRITE     extra writable paths (colon-separated)
 EOF
 }
 
@@ -131,8 +131,8 @@ case "${1:-}" in
     yolo)       shift; run_sandboxed claude --dangerously-skip-permissions "$@" ;;
     shell)      shift; run_sandboxed bash "$@" ;;
     doctor)     doctor ;;
-    version)    echo "clawd $CLAWD_VERSION"; claude --version ;;
-    help-clawd) usage ;;
+    version)    echo "krab $KRAB_VERSION"; claude --version ;;
+    help-krab) usage ;;
     --)         shift; run_sandboxed claude "$@" ;;
     *)          run_sandboxed claude "$@" ;;
 esac

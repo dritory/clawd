@@ -1,17 +1,17 @@
 #!/bin/sh
-# Install clawd to PATH. Prefers /usr/local/bin (sudo if needed),
+# Install krab to PATH. Prefers /usr/local/bin (sudo if needed),
 # falls back to ~/.local/bin and updates shell rc if that isn't on PATH.
 set -eu
 
-REPO_RAW_BASE="${CLAWD_INSTALL_BASE:-https://raw.githubusercontent.com/dritory/clawd/main}"
-REPO_RAW="${CLAWD_INSTALL_URL:-$REPO_RAW_BASE/clawd}"
-COMPLETION_URL="${CLAWD_COMPLETION_URL:-$REPO_RAW_BASE/completions/clawd.bash}"
-LOCAL_SRC="${CLAWD_INSTALL_LOCAL:-}"
-LOCAL_COMPLETION="${CLAWD_INSTALL_LOCAL_COMPLETION:-}"
-SCRIPT_NAME=clawd
+REPO_RAW_BASE="${KRAB_INSTALL_BASE:-https://raw.githubusercontent.com/dritory/krab/main}"
+REPO_RAW="${KRAB_INSTALL_URL:-$REPO_RAW_BASE/krab}"
+COMPLETION_URL="${KRAB_COMPLETION_URL:-$REPO_RAW_BASE/completions/krab.bash}"
+LOCAL_SRC="${KRAB_INSTALL_LOCAL:-}"
+LOCAL_COMPLETION="${KRAB_INSTALL_LOCAL_COMPLETION:-}"
+SCRIPT_NAME=krab
 
-msg() { printf 'clawd-install: %s\n' "$*"; }
-die() { printf 'clawd-install: %s\n' "$*" >&2; exit 1; }
+msg() { printf 'krab-install: %s\n' "$*"; }
+die() { printf 'krab-install: %s\n' "$*" >&2; exit 1; }
 
 # Check dependencies.
 command -v bwrap >/dev/null 2>&1 || {
@@ -45,8 +45,8 @@ if [ -n "$LOCAL_SRC" ]; then
     cp "$LOCAL_SRC" "$TMP"
     msg "using local source: $LOCAL_SRC"
 else
-    command -v curl >/dev/null 2>&1 || die "curl is required (or set CLAWD_INSTALL_LOCAL=/path/to/clawd)"
-    msg "downloading clawd"
+    command -v curl >/dev/null 2>&1 || die "curl is required (or set KRAB_INSTALL_LOCAL=/path/to/krab)"
+    msg "downloading krab"
     curl -fsSL "$REPO_RAW" -o "$TMP"
 fi
 
@@ -59,7 +59,7 @@ install_completion() {
         [ -r "$LOCAL_COMPLETION" ] || { msg "skipping completion: $LOCAL_COMPLETION not readable"; rm -f "$comp_tmp"; return 1; }
         cp "$LOCAL_COMPLETION" "$comp_tmp"
     elif [ -n "$LOCAL_SRC" ]; then
-        local_comp="$(dirname "$LOCAL_SRC")/completions/clawd.bash"
+        local_comp="$(dirname "$LOCAL_SRC")/completions/krab.bash"
         if [ -r "$local_comp" ]; then
             cp "$local_comp" "$comp_tmp"
         else
@@ -73,13 +73,13 @@ install_completion() {
     if [ -n "$SUDO" ] || [ "$DIR" = "/usr/local/bin" ]; then
         comp_dir=/etc/bash_completion.d
         $SUDO mkdir -p "$comp_dir"
-        $SUDO install -m 0644 "$comp_tmp" "$comp_dir/clawd"
-        msg "installed completion: $comp_dir/clawd"
+        $SUDO install -m 0644 "$comp_tmp" "$comp_dir/krab"
+        msg "installed completion: $comp_dir/krab"
     else
         comp_dir="${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions"
         mkdir -p "$comp_dir"
-        install -m 0644 "$comp_tmp" "$comp_dir/clawd"
-        msg "installed completion: $comp_dir/clawd"
+        install -m 0644 "$comp_tmp" "$comp_dir/krab"
+        msg "installed completion: $comp_dir/krab"
     fi
     rm -f "$comp_tmp"
 }
@@ -90,7 +90,7 @@ case ":$PATH:" in
 esac
 
 LINE="export PATH=\"$DIR:\$PATH\""
-MARKER="# Added by clawd installer"
+MARKER="# Added by krab installer"
 appended=0
 already=0
 for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
@@ -110,4 +110,4 @@ if [ "$appended" -eq 0 ] && [ "$already" -eq 0 ]; then
 fi
 
 msg "start a new shell, or run: export PATH=\"$DIR:\$PATH\""
-msg "then: clawd"
+msg "then: krab"
